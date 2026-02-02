@@ -76,7 +76,7 @@ export function LandingPage({ onStartDesigning }: LandingPageProps) {
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
       <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-b from-primary/5 to-transparent" />
         <div className="relative max-w-6xl mx-auto px-4 py-16 sm:py-24">
           <div className="text-center">
             <div className="flex items-center justify-center gap-3 mb-6">

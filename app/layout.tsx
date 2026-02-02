@@ -8,7 +8,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'DesignLens - AI-Powered Design Canvas',
+  title: 'DesignLens',
   description: 'A smart design canvas that provides real-time UI/UX feedback using AI',
   generator: 'v0.app',
   icons: {
