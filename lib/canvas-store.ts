@@ -38,6 +38,7 @@ interface CanvasState {
   showGrid: boolean
   showRulers: boolean
   showIssueHighlights: boolean
+  editingTextId: string | null
   
   // Actions
   setActiveTool: (tool: ToolType) => void
@@ -65,6 +66,7 @@ interface CanvasState {
   toggleGrid: () => void
   toggleRulers: () => void
   toggleIssueHighlights: () => void
+  setEditingTextId: (id: string | null) => void
   
   // History actions
   undo: () => void
@@ -91,6 +93,8 @@ interface CanvasState {
   // Frame management
   getFrameChildren: (frameId: string) => CanvasElement[]
   moveFrameWithChildren: (frameId: string, dx: number, dy: number) => void
+  setElementParent: (elementId: string, parentId: string | null) => void
+  getChildElements: (parentId: string) => CanvasElement[]
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
@@ -118,6 +122,7 @@ export const useCanvasStore = create<CanvasState>()(
       showGrid: true,
       showRulers: true,
       showIssueHighlights: true,
+      editingTextId: null,
       
       // Tool actions
       setActiveTool: (tool) => set({ activeTool: tool }),
@@ -237,6 +242,7 @@ export const useCanvasStore = create<CanvasState>()(
       toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
       toggleRulers: () => set((state) => ({ showRulers: !state.showRulers })),
       toggleIssueHighlights: () => set((state) => ({ showIssueHighlights: !state.showIssueHighlights })),
+      setEditingTextId: (id) => set({ editingTextId: id }),
       
       // Project management
       createProject: (name) => {
@@ -258,6 +264,8 @@ export const useCanvasStore = create<CanvasState>()(
           selectedIds: [],
           chatMessages: [],
           issues: [],
+          history: [{ elements: [], layers: [] }],
+          historyIndex: 0,
         }))
       },
       
@@ -290,6 +298,8 @@ export const useCanvasStore = create<CanvasState>()(
             selectedIds: [],
             chatMessages: [],
             issues: [],
+            history: [{ elements: project.elements, layers: project.layers }],
+            historyIndex: 0,
           })
         }
       },
@@ -398,12 +408,13 @@ export const useCanvasStore = create<CanvasState>()(
       // History actions
       undo: () => {
         const state = get()
-        if (state.historyIndex >= 0) {
-          const prevState = state.history[state.historyIndex]
+        if (state.historyIndex > 0) {
+          const newIndex = state.historyIndex - 1
+          const prevState = state.history[newIndex]
           set({
             elements: prevState.elements,
             layers: prevState.layers,
-            historyIndex: state.historyIndex - 1,
+            historyIndex: newIndex,
             selectedIds: [],
           })
         }
@@ -412,11 +423,12 @@ export const useCanvasStore = create<CanvasState>()(
       redo: () => {
         const state = get()
         if (state.historyIndex < state.history.length - 1) {
-          const nextState = state.history[state.historyIndex + 1]
+          const newIndex = state.historyIndex + 1
+          const nextState = state.history[newIndex]
           set({
             elements: nextState.elements,
             layers: nextState.layers,
-            historyIndex: state.historyIndex + 1,
+            historyIndex: newIndex,
             selectedIds: [],
           })
         }
@@ -424,17 +436,22 @@ export const useCanvasStore = create<CanvasState>()(
       
       pushHistory: () => {
         const state = get()
+        // Slice to remove any redo states beyond current index
         const newHistory = state.history.slice(0, state.historyIndex + 1)
+        // Add current state to history
         newHistory.push({ elements: state.elements, layers: state.layers })
+        // Keep only last 50 states
+        const trimmedHistory = newHistory.slice(-50)
+        const newIndex = trimmedHistory.length - 1
         set({
-          history: newHistory.slice(-50),
-          historyIndex: newHistory.length - 1,
+          history: trimmedHistory,
+          historyIndex: newIndex,
         })
       },
       
       canUndo: () => {
         const state = get()
-        return state.historyIndex >= 0
+        return state.historyIndex > 0
       },
       
       canRedo: () => {
@@ -454,22 +471,33 @@ export const useCanvasStore = create<CanvasState>()(
         }))
       },
       
-      // Frame management - get all elements inside a frame
+      // Frame management - get all elements inside a frame (by parentId)
       getFrameChildren: (frameId) => {
         const state = get()
-        const frame = state.elements.find((el) => el.id === frameId)
-        if (!frame || frame.type !== 'frame') return []
+        return state.elements.filter((el) => el.parentId === frameId)
+      },
+      
+      // Get all child elements recursively
+      getChildElements: (parentId) => {
+        const state = get()
+        const directChildren = state.elements.filter((el) => el.parentId === parentId)
+        const allChildren = [...directChildren]
         
-        return state.elements.filter((el) => {
-          if (el.id === frameId) return false
-          // Check if element is inside frame bounds
-          return (
-            el.x >= frame.x &&
-            el.y >= frame.y &&
-            el.x + el.width <= frame.x + frame.width &&
-            el.y + el.height <= frame.y + frame.height
-          )
+        directChildren.forEach((child) => {
+          const subChildren = get().getChildElements(child.id)
+          allChildren.push(...subChildren)
         })
+        
+        return allChildren
+      },
+      
+      // Set element's parent (or remove parent if null)
+      setElementParent: (elementId, parentId) => {
+        set((state) => ({
+          elements: state.elements.map((el) =>
+            el.id === elementId ? { ...el, parentId: parentId || undefined } : el
+          ),
+        }))
       },
       
       moveFrameWithChildren: (frameId, dx, dy) => {

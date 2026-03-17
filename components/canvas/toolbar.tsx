@@ -206,6 +206,7 @@
 'use client'
 
 import React from "react"
+import Image from 'next/image'
 
 import { useCanvasStore } from '@/lib/canvas-store'
 import type { ToolType } from '@/lib/types'
@@ -266,8 +267,14 @@ export function Toolbar() {
       <div className="flex items-center gap-1 bg-panel-bg border-b border-border px-3 py-2">
         {/* Logo */}
         <div className="flex items-center gap-2 mr-4">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">DL</span>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Image
+              src="/logo.png"
+              alt="DesignLens"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
           </div>
           <span className="font-semibold text-sm text-foreground hidden sm:inline">DesignLens</span>
         </div>

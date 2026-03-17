@@ -503,6 +503,9 @@ export function DesignCanvas() {
   const [resizeHandle, setResizeHandle] = useState<string | null>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
+  const [editingText, setEditingText] = useState('')
+  const textInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const {
     elements,
@@ -527,6 +530,8 @@ export function DesignCanvas() {
     undo,
     redo,
     pushHistory,
+    editingTextId,
+    setEditingTextId,
   } = useCanvasStore()
 
   const getCanvasCoords = useCallback((e: React.MouseEvent) => {
@@ -660,12 +665,14 @@ export function DesignCanvas() {
 
     if (isDragging) {
       setIsDragging(false)
+      pushHistory()
       return
     }
 
     if (isResizing) {
       setIsResizing(false)
       setResizeHandle(null)
+      pushHistory()
       return
     }
 
@@ -702,6 +709,7 @@ export function DesignCanvas() {
         
         addElement(newElement)
         selectElement(newElement.id)
+        pushHistory()
       }
       
       setIsDrawing(false)
@@ -757,6 +765,11 @@ export function DesignCanvas() {
         case 'f':
           setActiveTool('frame')
           break
+        case 'i':
+          if (imageInputRef.current) {
+            imageInputRef.current.click()
+          }
+          break
         case 'delete':
         case 'backspace':
           selectedIds.forEach((id) => deleteElement(id))
@@ -776,6 +789,94 @@ export function DesignCanvas() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedIds, deselectAll])
+
+  // Image tool: open file picker when image tool is selected
+  useEffect(() => {
+    if (activeTool === 'image' && imageInputRef.current) {
+      imageInputRef.current.click()
+    }
+  }, [activeTool])
+
+  // Handle image file selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) {
+      setActiveTool('select')
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (JPG, PNG, etc.)')
+      setActiveTool('select')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const imageUrl = event.target?.result as string
+      
+      // Create image element with default size
+      const elementCount = elements.filter((el) => el.type === 'image').length + 1
+      const newElement: CanvasElement = {
+        id: generateId(),
+        type: 'image',
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 200,
+        rotation: 0,
+        fill: '#ffffff',
+        stroke: '#000000',
+        strokeWidth: 1,
+        opacity: 1,
+        cornerRadius: 0,
+        imageUrl,
+        name: `Image ${elementCount}`,
+        visible: true,
+        locked: false,
+      }
+      
+      addElement(newElement)
+      selectElement(newElement.id)
+      pushHistory()
+      setActiveTool('select')
+    }
+    reader.readAsDataURL(file)
+    
+    // Reset input
+    e.target.value = ''
+  }
+
+  // Text editing handlers
+  const handleTextDoubleClick = (element: CanvasElement) => {
+    if (element.type === 'text') {
+      setEditingTextId(element.id)
+      setEditingText(element.text || '')
+      setTimeout(() => textInputRef.current?.focus(), 0)
+    }
+  }
+
+  const handleSaveText = (elementId: string) => {
+    const element = elements.find((el) => el.id === elementId)
+    if (element && editingText !== element.text) {
+      updateElement(elementId, { text: editingText })
+      pushHistory()
+    }
+    setEditingTextId(null)
+    setEditingText('')
+  }
+
+  const handleTextKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (editingTextId) {
+        handleSaveText(editingTextId)
+      }
+    } else if (e.key === 'Escape') {
+      setEditingTextId(null)
+      setEditingText('')
+    }
+  }
 
   const renderElement = (element: CanvasElement) => {
     if (element.visible === false) return null
@@ -821,22 +922,65 @@ export function DesignCanvas() {
             />
           )
         case 'text':
+          const textAlignMap: { [key: string]: string } = {
+            'left': 'flex-start',
+            'center': 'center',
+            'right': 'flex-end',
+          }
+          
+          const isEditing = editingTextId === element.id
+          
           return (
             <div
               style={{
                 ...baseStyle,
-                backgroundColor: 'transparent',
+                backgroundColor: isEditing ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: element.textAlign || 'left',
+                justifyContent: textAlignMap[element.textAlign || 'left'],
                 fontSize: element.fontSize,
                 fontFamily: element.fontFamily,
                 fontWeight: element.fontWeight,
                 color: element.fill,
                 padding: '4px',
-              }}
+                overflow: 'hidden',
+                whiteSpace: 'pre-wrap',
+                wordWrap: 'break-word',
+                border: isEditing ? '2px solid #3B82F6' : 'none',
+                cursor: 'text',
+                // Apply text stroke if strokeWidth > 0
+                ...(element.textStrokeWidth && element.textStrokeWidth > 0 ? {
+                  WebkitTextStroke: `${element.textStrokeWidth}px ${element.textStroke || '#000000'}`,
+                } : {}),
+              } as React.CSSProperties}
+              onDoubleClick={() => handleTextDoubleClick(element)}
             >
-              {element.text}
+              {isEditing ? (
+                <input
+                  ref={textInputRef}
+                  type="text"
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  onKeyDown={handleTextKeyDown}
+                  onBlur={() => handleSaveText(element.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    border: 'none',
+                    background: 'transparent',
+                    color: element.fill,
+                    fontSize: element.fontSize,
+                    fontFamily: element.fontFamily,
+                    fontWeight: element.fontWeight,
+                    textAlign: element.textAlign || 'left',
+                    outline: 'none',
+                    padding: '4px',
+                  }}
+                />
+              ) : (
+                element.text || ''
+              )}
             </div>
           )
         case 'line':
@@ -856,6 +1000,44 @@ export function DesignCanvas() {
                 strokeWidth={element.strokeWidth}
               />
             </svg>
+          )
+        case 'image':
+          return (
+            <div
+              style={{
+                ...baseStyle,
+                border: `${element.strokeWidth}px solid ${element.stroke}`,
+                borderRadius: element.cornerRadius,
+                overflow: 'hidden',
+                backgroundColor: '#f5f5f5',
+              }}
+            >
+              {element.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={element.imageUrl}
+                  alt={element.name || 'Image'}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: 'center',
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#999',
+                  fontSize: '12px',
+                }}>
+                  No Image
+                </div>
+              )}
+            </div>
           )
         default:
           return null
@@ -986,6 +1168,15 @@ export function DesignCanvas() {
       <div className="absolute bottom-4 left-4 bg-panel-bg/90 backdrop-blur-sm rounded-lg px-3 py-1.5 text-xs text-muted-foreground">
         {Math.round(zoom * 100)}%
       </div>
+
+      {/* Hidden image file input */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/gif,image/webp,image/svg+xml"
+        onChange={handleImageSelect}
+        className="hidden"
+      />
     </div>
   )
 }
