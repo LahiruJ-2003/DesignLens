@@ -371,7 +371,7 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
               <div className="text-center py-8">
                 <MessageSquare className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
                 <p className="text-sm text-muted-foreground">
-                  Ask Gemini about your design!
+                  Ask DesignLens about your design!
                 </p>
                 <p className="text-xs text-muted-foreground/70 mt-1">
                   Get AI-powered feedback on colors, typography, spacing, and
@@ -473,7 +473,7 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Ask Gemini about your design..."
+            placeholder="Ask DesignLens about your design..."
             className="flex-1 h-9 text-sm"
             disabled={isLoading}
           />
