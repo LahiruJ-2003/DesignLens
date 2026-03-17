@@ -2,6 +2,7 @@ import React from "react"
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { ClerkProvider } from '@clerk/nextjs'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -10,8 +11,7 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: 'DesignLens',
   description: 'A smart design canvas that provides real-time UI/UX feedback using AI',
-  generator: 'v0.app',
-  icons: {
+    icons: {
     icon: [
       {
         url: '/icon-light-32x32.png',
@@ -36,11 +36,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className={`font-sans antialiased`}>
-        {children}
-        <Analytics />
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body className={`font-sans antialiased`}>
+          {children}
+          <Analytics />
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }
