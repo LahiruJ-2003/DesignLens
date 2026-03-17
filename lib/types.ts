@@ -19,9 +19,12 @@ export interface CanvasElement {
   fontFamily?: string
   fontWeight?: string
   textAlign?: 'left' | 'center' | 'right'
+  textStroke?: string
+  textStrokeWidth?: number
   imageUrl?: string
   locked?: boolean
   visible?: boolean
+  parentId?: string
   name: string
 }
 
