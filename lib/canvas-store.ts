@@ -2,6 +2,11 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CanvasElement, Layer, ToolType, UIIssue, ChatMessage, DesignProject } from './types'
 
+interface HistoryState {
+  elements: CanvasElement[]
+  layers: Layer[]
+}
+
 interface CanvasState {
   // Project
   currentProject: DesignProject | null
@@ -13,6 +18,10 @@ interface CanvasState {
   layers: Layer[]
   zoom: number
   panOffset: { x: number; y: number }
+  
+  // History for undo/redo
+  history: HistoryState[]
+  historyIndex: number
   
   // Tools
   activeTool: ToolType
@@ -36,7 +45,7 @@ interface CanvasState {
   setActiveStroke: (stroke: string) => void
   setActiveStrokeWidth: (width: number) => void
   
-  addElement: (element: CanvasElement) => void
+  addElement: (element: CanvasElement, autoSelectTool?: boolean) => void
   updateElement: (id: string, updates: Partial<CanvasElement>) => void
   deleteElement: (id: string) => void
   duplicateElement: (id: string) => void
@@ -57,17 +66,31 @@ interface CanvasState {
   toggleRulers: () => void
   toggleIssueHighlights: () => void
   
+  // History actions
+  undo: () => void
+  redo: () => void
+  pushHistory: () => void
+  canUndo: () => boolean
+  canRedo: () => boolean
+  
   // Project management
   createProject: (name: string) => void
   saveProject: () => void
   loadProject: (id: string) => void
   deleteProject: (id: string) => void
+  importProject: (project: DesignProject) => void
+  renameProject: (id: string, name: string) => void
   
   // Layer management
   addLayer: (elementId: string, name: string) => void
   toggleLayerVisibility: (id: string) => void
   toggleLayerLock: (id: string) => void
   reorderLayers: (fromIndex: number, toIndex: number) => void
+  renameLayer: (id: string, name: string) => void
+  
+  // Frame management
+  getFrameChildren: (frameId: string) => CanvasElement[]
+  moveFrameWithChildren: (frameId: string, dx: number, dy: number) => void
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
@@ -83,6 +106,8 @@ export const useCanvasStore = create<CanvasState>()(
       layers: [],
       zoom: 1,
       panOffset: { x: 0, y: 0 },
+      history: [],
+      historyIndex: -1,
       activeTool: 'select',
       activeColor: '#3B82F6',
       activeStroke: '#1E40AF',
@@ -101,7 +126,12 @@ export const useCanvasStore = create<CanvasState>()(
       setActiveStrokeWidth: (width) => set({ activeStrokeWidth: width }),
       
       // Element actions
-      addElement: (element) => {
+      addElement: (element, autoSelectTool = true) => {
+        const state = get()
+        // Push current state to history before making changes
+        const newHistory = state.history.slice(0, state.historyIndex + 1)
+        newHistory.push({ elements: state.elements, layers: state.layers })
+        
         set((state) => {
           const newLayer: Layer = {
             id: generateId(),
@@ -113,23 +143,44 @@ export const useCanvasStore = create<CanvasState>()(
           return {
             elements: [...state.elements, element],
             layers: [newLayer, ...state.layers],
+            history: newHistory.slice(-50), // Keep last 50 states
+            historyIndex: newHistory.length - 1,
+            // Auto-switch to select tool after drawing
+            activeTool: autoSelectTool ? 'select' : state.activeTool,
           }
         })
       },
       
       updateElement: (id, updates) => {
-        set((state) => ({
-          elements: state.elements.map((el) =>
-            el.id === id ? { ...el, ...updates } : el
-          ),
-        }))
+        set((state) => {
+          // Also update the layer name if element name is being updated
+          const updatedLayers = updates.name
+            ? state.layers.map((l) =>
+                l.elementId === id ? { ...l, name: updates.name as string } : l
+              )
+            : state.layers
+          
+          return {
+            elements: state.elements.map((el) =>
+              el.id === id ? { ...el, ...updates } : el
+            ),
+            layers: updatedLayers,
+          }
+        })
       },
       
       deleteElement: (id) => {
+        const state = get()
+        // Push current state to history
+        const newHistory = state.history.slice(0, state.historyIndex + 1)
+        newHistory.push({ elements: state.elements, layers: state.layers })
+        
         set((state) => ({
           elements: state.elements.filter((el) => el.id !== id),
           layers: state.layers.filter((l) => l.elementId !== id),
           selectedIds: state.selectedIds.filter((sid) => sid !== id),
+          history: newHistory.slice(-50),
+          historyIndex: newHistory.length - 1,
         }))
       },
       
@@ -249,6 +300,26 @@ export const useCanvasStore = create<CanvasState>()(
           currentProject: state.currentProject?.id === id ? null : state.currentProject,
         }))
       },
+
+      importProject: (importedProject) => {
+        // Generate a new ID for the imported project to avoid conflicts
+        const newProject: DesignProject = {
+          ...importedProject,
+          id: generateId(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+        
+        set((state) => ({
+          projects: [...state.projects, newProject],
+          currentProject: newProject,
+          elements: importedProject.elements || [],
+          layers: importedProject.layers || [],
+          selectedIds: [],
+          chatMessages: [],
+          issues: [],
+        }))
+      },
       
       // Layer management
       addLayer: (elementId, name) => {
@@ -305,6 +376,118 @@ export const useCanvasStore = create<CanvasState>()(
           newLayers.splice(toIndex, 0, removed)
           return { layers: newLayers }
         })
+      },
+      
+      renameLayer: (id, name) => {
+        set((state) => {
+          const layer = state.layers.find((l) => l.id === id)
+          if (layer) {
+            return {
+              layers: state.layers.map((l) =>
+                l.id === id ? { ...l, name } : l
+              ),
+              elements: state.elements.map((el) =>
+                el.id === layer.elementId ? { ...el, name } : el
+              ),
+            }
+          }
+          return state
+        })
+      },
+      
+      // History actions
+      undo: () => {
+        const state = get()
+        if (state.historyIndex >= 0) {
+          const prevState = state.history[state.historyIndex]
+          set({
+            elements: prevState.elements,
+            layers: prevState.layers,
+            historyIndex: state.historyIndex - 1,
+            selectedIds: [],
+          })
+        }
+      },
+      
+      redo: () => {
+        const state = get()
+        if (state.historyIndex < state.history.length - 1) {
+          const nextState = state.history[state.historyIndex + 1]
+          set({
+            elements: nextState.elements,
+            layers: nextState.layers,
+            historyIndex: state.historyIndex + 1,
+            selectedIds: [],
+          })
+        }
+      },
+      
+      pushHistory: () => {
+        const state = get()
+        const newHistory = state.history.slice(0, state.historyIndex + 1)
+        newHistory.push({ elements: state.elements, layers: state.layers })
+        set({
+          history: newHistory.slice(-50),
+          historyIndex: newHistory.length - 1,
+        })
+      },
+      
+      canUndo: () => {
+        const state = get()
+        return state.historyIndex >= 0
+      },
+      
+      canRedo: () => {
+        const state = get()
+        return state.historyIndex < state.history.length - 1
+      },
+      
+      // Project rename
+      renameProject: (id, name) => {
+        set((state) => ({
+          projects: state.projects.map((p) =>
+            p.id === id ? { ...p, name, updatedAt: new Date() } : p
+          ),
+          currentProject: state.currentProject?.id === id
+            ? { ...state.currentProject, name, updatedAt: new Date() }
+            : state.currentProject,
+        }))
+      },
+      
+      // Frame management - get all elements inside a frame
+      getFrameChildren: (frameId) => {
+        const state = get()
+        const frame = state.elements.find((el) => el.id === frameId)
+        if (!frame || frame.type !== 'frame') return []
+        
+        return state.elements.filter((el) => {
+          if (el.id === frameId) return false
+          // Check if element is inside frame bounds
+          return (
+            el.x >= frame.x &&
+            el.y >= frame.y &&
+            el.x + el.width <= frame.x + frame.width &&
+            el.y + el.height <= frame.y + frame.height
+          )
+        })
+      },
+      
+      moveFrameWithChildren: (frameId, dx, dy) => {
+        const state = get()
+        const frame = state.elements.find((el) => el.id === frameId)
+        if (!frame || frame.type !== 'frame') return
+        
+        const children = get().getFrameChildren(frameId)
+        const childIds = children.map((c) => c.id)
+        
+        set((state) => ({
+          elements: state.elements.map((el) => {
+            if (el.id === frameId || childIds.includes(el.id)) {
+              return { ...el, x: el.x + dx, y: el.y + dy }
+            }
+            return el
+          }),
+        }))
       },
     }),
     {
