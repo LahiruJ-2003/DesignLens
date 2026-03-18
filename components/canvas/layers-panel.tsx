@@ -264,13 +264,10 @@ export function LayersPanel() {
       return
     }
 
-    // Only allow dropping into frames or removing from parents
+    // Drop on frame = add to frame
     if (targetElement.type === 'frame') {
       setElementParent(draggedElementId, targetElementId)
       setExpandedParents(new Set(expandedParents).add(targetElementId))
-    } else if (e.shiftKey) {
-      // Shift+drop removes from parent
-      setElementParent(draggedElementId, null)
     }
 
     setDraggedElementId(null)
@@ -440,9 +437,29 @@ export function LayersPanel() {
                 </p>
               ) : (
                 <>
-                  {renderLayerTree()}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'move'
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      if (draggedElementId) {
+                        const draggedElement = elements.find((el) => el.id === draggedElementId)
+                        // If dragging from a frame, remove it from parent
+                        if (draggedElement?.parentId) {
+                          setElementParent(draggedElementId, null)
+                        }
+                      }
+                      setDraggedElementId(null)
+                      setDragOverElementId(null)
+                    }}
+                    className="min-h-8 px-2"
+                  >
+                    {renderLayerTree()}
+                  </div>
                   <div className="text-xs text-muted-foreground px-2 py-2 border-t border-border mt-2">
-                    💡 Drag layers into frames to nest them. Shift+drop to remove from parent.
+                    💡 Drag layers into frames to nest. Drag out to remove from frame.
                   </div>
                 </>
               )}

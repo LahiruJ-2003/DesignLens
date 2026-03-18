@@ -41,7 +41,7 @@
 // }
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { LandingPage } from '@/components/landing-page'
@@ -51,12 +51,18 @@ import { LiveblocksProvider } from '@/components/collaboration/liveblocks-provid
 
 export default function Home() {
   const [showEditor, setShowEditor] = useState(false)
+  const [hasMounted, setHasMounted] = useState(false)
   const { currentProject } = useCanvasStore()
   const { isLoaded, isSignedIn } = useUser()
   const router = useRouter()
 
+  // Mount effect to handle client-side logic
+  useEffect(() => {
+    setHasMounted(true)
+  }, [])
+
   // Wait for Clerk to load
-  if (!isLoaded) {
+  if (!isLoaded || !hasMounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-muted-foreground">Loading...</div>
@@ -69,8 +75,8 @@ export default function Home() {
     return <LandingPage onStartDesigning={() => router.push('/sign-in')} />
   }
 
-  // Show editor if user has already started or if there's a current project
-  if (showEditor || currentProject) {
+  // Show editor if user has explicitly clicked start/load (overrides currentProject)
+  if (showEditor) {
     return (
       <LiveblocksProvider roomId={currentProject?.id || 'designlens-default'}>
         <CanvasEditor />

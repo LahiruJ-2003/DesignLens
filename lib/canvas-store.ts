@@ -82,6 +82,7 @@ interface CanvasState {
   deleteProject: (id: string) => void
   importProject: (project: DesignProject) => void
   renameProject: (id: string, name: string) => void
+  clearCurrentProject: () => void
   
   // Layer management
   addLayer: (elementId: string, name: string) => void
@@ -349,13 +350,44 @@ export const useCanvasStore = create<CanvasState>()(
         set((state) => {
           const layer = state.layers.find((l) => l.id === id)
           if (layer) {
+            const element = state.elements.find((el) => el.id === layer.elementId)
+            const newVisibility = !layer.visible
+            
+            // Get all child elements if this is a frame
+            const getChildIds = (elementId: string): string[] => {
+              const children = state.elements.filter((el) => el.parentId === elementId)
+              const allChildIds = children.map((child) => child.id)
+              children.forEach((child) => {
+                allChildIds.push(...getChildIds(child.id))
+              })
+              return allChildIds
+            }
+            
+            const childElementIds = element?.type === 'frame' ? getChildIds(layer.elementId) : []
+            
             return {
-              layers: state.layers.map((l) =>
-                l.id === id ? { ...l, visible: !l.visible } : l
-              ),
-              elements: state.elements.map((el) =>
-                el.id === layer.elementId ? { ...el, visible: !layer.visible } : el
-              ),
+              layers: state.layers.map((l) => {
+                // Toggle visibility of the main layer
+                if (l.id === id) {
+                  return { ...l, visible: newVisibility }
+                }
+                // Also toggle visibility of all child layers if parent is a frame
+                if (childElementIds.includes(l.elementId)) {
+                  return { ...l, visible: newVisibility }
+                }
+                return l
+              }),
+              elements: state.elements.map((el) => {
+                // Toggle main element
+                if (el.id === layer.elementId) {
+                  return { ...el, visible: newVisibility }
+                }
+                // Toggle all children if parent is a frame
+                if (childElementIds.includes(el.id)) {
+                  return { ...el, visible: newVisibility }
+                }
+                return el
+              }),
             }
           }
           return state
@@ -469,6 +501,19 @@ export const useCanvasStore = create<CanvasState>()(
             ? { ...state.currentProject, name, updatedAt: new Date() }
             : state.currentProject,
         }))
+      },
+      
+      clearCurrentProject: () => {
+        set({
+          currentProject: null,
+          elements: [],
+          layers: [],
+          selectedIds: [],
+          chatMessages: [],
+          issues: [],
+          history: [{ elements: [], layers: [] }],
+          historyIndex: 0,
+        })
       },
       
       // Frame management - get all elements inside a frame (by parentId)
