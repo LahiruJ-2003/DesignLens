@@ -10,11 +10,12 @@ import { ProjectManager } from './project-manager'
 import { useDesignAnalysis } from '@/hooks/use-design-analysis'
 import { useCanvasStore } from '@/lib/canvas-store'
 import { Badge } from '@/components/ui/badge'
-import { AlertCircle, AlertTriangle, Info, Lightbulb } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Info, Lightbulb, Share2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { InspirationBrowser } from '@/components/inspiration-browser'
 import { useCollaboration } from '@/hooks/use-collaboration'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 
 export function CanvasEditor() {
@@ -67,6 +68,7 @@ export function CanvasEditor() {
               <div className="flex -space-x-2">
                 {collaborators.slice(0, 3).map((collab) => (
                   <Avatar key={collab.id} className="h-6 w-6 border-2 border-background" title={collab.presence.name}>
+                    {collab.presence.picture && <AvatarImage src={collab.presence.picture} alt={collab.presence.name} />}
                     <AvatarFallback style={{ backgroundColor: collab.presence.color }}>
                       {collab.presence.name.charAt(0)}
                     </AvatarFallback>
@@ -81,6 +83,26 @@ export function CanvasEditor() {
             </div>
           )}
           
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const url = new URL(window.location.href)
+              if (!url.searchParams.has('room') && currentProject) {
+                url.searchParams.set('room', currentProject.id)
+              } else if (!url.searchParams.has('room')) {
+                url.searchParams.set('room', 'designlens-default')
+              }
+              navigator.clipboard.writeText(url.toString())
+              toast.success('Invite link copied!', {
+                description: 'Share this link to collaborate in real-time.'
+              })
+            }}
+            className="gap-2 bg-primary/10 hover:bg-primary/20 text-primary border-primary/20"
+          >
+            <Share2 className="h-4 w-4" />
+            Share
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -141,14 +163,10 @@ export function CanvasEditor() {
               }}
             >
               {/* Cursor */}
-              <div className="relative">
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: collab.presence.color }}>
-                  <path d="M3 3l7.07 18.26a.5.5 0 0 0 .766.153l2.286-2.286a.5.5 0 0 1 .708 0l2.286 2.286a.5.5 0 0 0 .766-.153L21 3M6.75 6.75l10.5 10.5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <div className="relative shadow-sm" style={{ transition: 'transform 0.1s ease-out' }}>
+                <svg width="24" height="36" viewBox="0 0 24 36" fill="none" stroke="white" strokeWidth="1.5">
+                  <path fill={collab.presence.color} d="M1 1L8.5 28L12.5 17L23 12L1 1Z" />
                 </svg>
-                {/* User Label */}
-                <div className="absolute left-6 top-0 bg-white rounded shadow-sm text-xs font-semibold px-2 py-1 whitespace-nowrap" style={{ borderLeft: `3px solid ${collab.presence.color}` }}>
-                  {collab.presence.name}
-                </div>
               </div>
             </div>
           )
