@@ -37,8 +37,8 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body className={`font-sans antialiased`}>
+      <html lang="en" suppressHydrationWarning>
+        <body className={`font-sans antialiased`} suppressHydrationWarning>
           {children}
           <Analytics />
         </body>
