@@ -11,6 +11,7 @@ type Presence = {
     id: string
     name: string
     color: string
+    picture?: string
   }
 }
 
@@ -31,6 +32,7 @@ const client = createClient({
   throttle: 16,
 })
 
+// @ts-ignore - Liveblocks Storage expects strictly indexable Lson types, but we are using broader interfaces for plain arrays
 const roomContext = createRoomContext<Presence, Storage, UserMeta>(client)
 
 export const RoomProvider = roomContext.suspense.RoomProvider
