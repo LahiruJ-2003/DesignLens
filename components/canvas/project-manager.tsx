@@ -133,165 +133,143 @@ export function ProjectManager() {
 
   return (
     <div className="flex items-center gap-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 gap-2 px-3">
-            <FolderOpen className="h-4 w-4" />
-            {isEditingName ? (
-              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                <Input
-                  ref={inputRef}
-                  value={editedName}
-                  onChange={(e) => setEditedName(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onBlur={handleSaveRename}
-                  className="h-6 w-32 text-xs py-0 px-2"
-                />
-                <div
-                  className="h-5 w-5 p-0 inline-flex items-center justify-center rounded hover:bg-muted cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleSaveRename()
-                  }}
-                  title="Save"
-                >
-                  <Check className="h-3 w-3 text-success" />
-                </div>
-                <div
-                  className="h-5 w-5 p-0 inline-flex items-center justify-center rounded hover:bg-muted cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleCancelRename()
-                  }}
-                  title="Cancel"
-                >
-                  <X className="h-3 w-3 text-destructive" />
-                </div>
-              </div>
-            ) : (
-              <>
-                <span 
-                  className="max-w-32 truncate"
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    handleStartEditing()
-                  }}
-                >
-                  {currentProject?.name || 'Untitled Design'}
-                </span>
-                {currentProject && (
-                  <div
-                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 inline-flex items-center justify-center rounded hover:bg-muted cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleStartEditing()
+      {isEditingName ? (
+        <div className="flex items-center gap-1">
+          <Input
+            ref={inputRef}
+            value={editedName}
+            onChange={(e) => setEditedName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={handleSaveRename}
+            className="h-8 w-40 text-xs py-0 px-2"
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={handleSaveRename}
+            title="Save"
+          >
+            <Check className="h-4 w-4 text-success" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={handleCancelRename}
+            title="Cancel"
+          >
+            <X className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 gap-2 px-3">
+              <FolderOpen className="h-4 w-4" />
+              <span className="max-w-32 truncate">
+                {currentProject?.name || 'Untitled Design'}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <Dialog open={isNewProjectOpen} onOpenChange={setIsNewProjectOpen}>
+              <DialogTrigger asChild>
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Project
+                </DropdownMenuItem>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New Project</DialogTitle>
+                  <DialogDescription>
+                    Give your project a name to get started.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                  <Input
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    placeholder="Project name"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateProject()
                     }}
-                    title="Edit name"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </div>
-                )}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsNewProjectOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateProject} disabled={!newProjectName.trim()}>
+                    Create Project
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            {currentProject && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={handleStartEditing}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Rename Project
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleExportProject}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Project
+                </DropdownMenuItem>
               </>
             )}
-            <ChevronDown className="h-3 w-3 opacity-50" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-64">
-          <Dialog open={isNewProjectOpen} onOpenChange={setIsNewProjectOpen}>
-            <DialogTrigger asChild>
-              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                <Plus className="h-4 w-4 mr-2" />
-                New Project
-              </DropdownMenuItem>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Project</DialogTitle>
-                <DialogDescription>
-                  Give your project a name to get started.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="py-4">
-                <Input
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="Project name"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateProject()
-                  }}
-                />
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsNewProjectOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleCreateProject} disabled={!newProjectName.trim()}>
-                  Create Project
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          
-          {currentProject && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={handleStartEditing}>
-                <Pencil className="h-4 w-4 mr-2" />
-                Rename Project
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={handleExportProject}>
-                <Download className="h-4 w-4 mr-2" />
-                Export Project
-              </DropdownMenuItem>
-            </>
-          )}
 
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={handleImportClick}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import Project
-          </DropdownMenuItem>
-          
-          {projects.length > 0 && (
-            <>
-              <DropdownMenuSeparator />
-              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                Recent Projects
-              </div>
-              {projects.slice(0, 10).map((project) => (
-                <div
-                  key={project.id}
-                  className={cn(
-                    'flex items-center justify-between px-2 py-1.5 rounded cursor-pointer hover:bg-accent group',
-                    currentProject?.id === project.id && 'bg-accent'
-                  )}
-                  onClick={() => loadProject(project.id)}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText className="h-4 w-4 shrink-0" />
-                    <span className="truncate text-sm">{project.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-[10px] text-muted-foreground">
-                      {formatDate(project.updatedAt)}
-                    </span>
-                    <button
-                      type="button"
-                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 hover:text-destructive inline-flex items-center justify-center rounded hover:bg-muted/50 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteProject(project.id)
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={handleImportClick}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import Project
+            </DropdownMenuItem>
+            
+            {projects.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                  Recent Projects
                 </div>
-              ))}
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+                {projects.slice(0, 10).map((project) => (
+                  <div
+                    key={project.id}
+                    className={cn(
+                      'flex items-center justify-between px-2 py-1.5 rounded cursor-pointer hover:bg-accent group',
+                      currentProject?.id === project.id && 'bg-accent'
+                    )}
+                    onClick={() => loadProject(project.id)}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span className="truncate text-sm">{project.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatDate(project.updatedAt)}
+                      </span>
+                      <button
+                        type="button"
+                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 hover:text-destructive inline-flex items-center justify-center rounded hover:bg-muted/50 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteProject(project.id)
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       {currentProject && (
         <>

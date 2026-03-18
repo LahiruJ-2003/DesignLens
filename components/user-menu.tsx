@@ -57,7 +57,7 @@ export function UserMenu() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem 
-          onClick={() => signOut({ redirectUrl: '/sign-in' })}
+          onClick={() => signOut({ redirectUrl: '/' })}
           className="flex items-center gap-2 text-destructive focus:text-destructive"
         >
           <LogOut className="h-4 w-4" />

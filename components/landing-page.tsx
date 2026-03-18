@@ -222,7 +222,7 @@ export function LandingPage({ onStartDesigning }: LandingPageProps) {
       </div>
 
       {/* Recent Projects */}
-      {projects.length > 0 && (
+      {projects.length > 0 && isSignedIn && (
         <div className="max-w-6xl mx-auto px-4 py-16 border-t border-border">
           <h2 className="text-2xl font-bold text-foreground mb-8">Recent Projects</h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">

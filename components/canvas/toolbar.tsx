@@ -207,6 +207,7 @@
 
 import React from "react"
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 
 import { useCanvasStore } from '@/lib/canvas-store'
 import type { ToolType } from '@/lib/types'
@@ -227,6 +228,7 @@ import {
   Save,
   Undo,
   Redo,
+  Home,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -245,6 +247,7 @@ const tools: { type: ToolType; icon: React.ReactNode; label: string; shortcut: s
 ]
 
 export function Toolbar() {
+  const router = useRouter()
   const { 
     activeTool, 
     setActiveTool, 
@@ -262,9 +265,38 @@ export function Toolbar() {
     canRedo,
   } = useCanvasStore()
 
+  const handleGoHome = () => {
+    // Save current project
+    if (currentProject) {
+      saveProject()
+    }
+    // Navigate to landing page using window location
+    window.location.href = '/'
+  }
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex items-center gap-1 bg-panel-bg border-b border-border px-3 py-2">
+        {/* Home Button */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={handleGoHome}
+              title="Go to home"
+            >
+              <Home className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>Go to Home</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Separator orientation="vertical" className="h-6 mx-2" />
+
         {/* Logo */}
         <div className="flex items-center gap-2 mr-4">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0">
