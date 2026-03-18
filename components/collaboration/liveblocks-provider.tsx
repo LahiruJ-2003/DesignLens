@@ -1,7 +1,9 @@
 'use client'
 
-import { ReactNode, Suspense } from 'react'
+import { ReactNode } from 'react'
 import { RoomProvider } from '@/liveblocks.config'
+import { ClientSideSuspense } from '@liveblocks/react'
+import { CanvasSync } from '@/components/canvas/canvas-sync'
 
 interface LiveblocksProviderProps {
   children: ReactNode
@@ -25,18 +27,27 @@ export function LiveblocksProvider({ children, roomId }: LiveblocksProviderProps
   }
 
   return (
-    <Suspense fallback={<LoadingFallback />}>
-      <RoomProvider
-        
-        id={roomId}
-        initialPresence={{
-          cursor: null,
-          selectedElementIds: [],
-          user: { id: '', name: '', color: '' },
-        }}
-      >
-        {children}
-      </RoomProvider>
-    </Suspense>
+    <RoomProvider
+      id={roomId}
+      initialPresence={{
+        cursor: null,
+        selectedElementIds: [],
+        user: { id: '', name: '', color: '' },
+      }}
+      initialStorage={{
+        elements: [],
+        layers: [],
+        projectName: 'Untitled Design'
+      }}
+    >
+      <ClientSideSuspense fallback={<LoadingFallback />}>
+        {() => (
+          <>
+            <CanvasSync />
+            {children}
+          </>
+        )}
+      </ClientSideSuspense>
+    </RoomProvider>
   )
 }
