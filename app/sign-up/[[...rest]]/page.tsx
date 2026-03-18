@@ -22,7 +22,7 @@ export default function SignUpPage() {
               identifierInputField: 'bg-background border border-border text-foreground',
             },
           }}
-          redirectUrl="/"
+          fallbackRedirectUrl="/"
         />
       </div>
     </div>
