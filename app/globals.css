@@ -140,3 +140,34 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .scrollbar-transparent::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .scrollbar-transparent::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-transparent::-webkit-scrollbar-thumb {
+    background: oklch(0.95 0 0 / 0.1);
+    border-radius: 10px;
+  }
+  .scrollbar-transparent::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.95 0 0 / 0.2);
+  }
+  
+  /* Support for Firefox */
+  .scrollbar-transparent {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.95 0 0 / 0.1) transparent;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
