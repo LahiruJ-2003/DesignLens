@@ -1,143 +1,3 @@
-// 'use client'
-
-// import React from "react"
-
-// import { useCanvasStore } from '@/lib/canvas-store'
-// import { cn } from '@/lib/utils'
-// import { Button } from '@/components/ui/button'
-// import { ScrollArea } from '@/components/ui/scroll-area'
-// import {
-//   Eye,
-//   EyeOff,
-//   Lock,
-//   Unlock,
-//   Square,
-//   Circle,
-//   Type,
-//   Minus,
-//   Frame,
-//   ImageIcon,
-//   ChevronDown,
-//   Layers,
-// } from 'lucide-react'
-// import {
-//   Collapsible,
-//   CollapsibleContent,
-//   CollapsibleTrigger,
-// } from '@/components/ui/collapsible'
-// import { useState } from 'react'
-
-// const iconMap: Record<string, React.ReactNode> = {
-//   rectangle: <Square className="h-3.5 w-3.5" />,
-//   circle: <Circle className="h-3.5 w-3.5" />,
-//   text: <Type className="h-3.5 w-3.5" />,
-//   line: <Minus className="h-3.5 w-3.5" />,
-//   frame: <Frame className="h-3.5 w-3.5" />,
-//   image: <ImageIcon className="h-3.5 w-3.5" />,
-// }
-
-// export function LayersPanel() {
-//   const [isOpen, setIsOpen] = useState(true)
-//   const {
-//     elements,
-//     layers,
-//     selectedIds,
-//     selectElement,
-//     toggleLayerVisibility,
-//     toggleLayerLock,
-//   } = useCanvasStore()
-
-//   return (
-//     <div className="w-56 bg-panel-bg border-r border-border flex flex-col">
-//       <Collapsible open={isOpen} onOpenChange={setIsOpen} className="flex-1 flex flex-col">
-//         <CollapsibleTrigger className="flex items-center justify-between p-3 hover:bg-muted/50 transition-colors">
-//           <div className="flex items-center gap-2">
-//             <Layers className="h-4 w-4 text-muted-foreground" />
-//             <span className="text-sm font-medium text-foreground">Layers</span>
-//           </div>
-//           <ChevronDown className={cn(
-//             'h-4 w-4 text-muted-foreground transition-transform',
-//             !isOpen && '-rotate-90'
-//           )} />
-//         </CollapsibleTrigger>
-        
-//         <CollapsibleContent className="flex-1">
-//           <ScrollArea className="h-[calc(100vh-200px)]">
-//             <div className="p-2 space-y-0.5">
-//               {layers.length === 0 ? (
-//                 <p className="text-xs text-muted-foreground text-center py-4">
-//                   No layers yet. Start drawing!
-//                 </p>
-//               ) : (
-//                 layers.map((layer) => {
-//                   const element = elements.find((el) => el.id === layer.elementId)
-//                   if (!element) return null
-                  
-//                   const isSelected = selectedIds.includes(element.id)
-                  
-//                   return (
-//                     <div
-//                       key={layer.id}
-//                       className={cn(
-//                         'flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer group',
-//                         isSelected ? 'bg-primary/20' : 'hover:bg-muted/50'
-//                       )}
-//                       onClick={() => selectElement(element.id)}
-//                     >
-//                       <span className="text-muted-foreground">
-//                         {iconMap[element.type] || <Square className="h-3.5 w-3.5" />}
-//                       </span>
-                      
-//                       <span className={cn(
-//                         'flex-1 text-xs truncate',
-//                         isSelected ? 'text-primary' : 'text-foreground'
-//                       )}>
-//                         {layer.name}
-//                       </span>
-                      
-//                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-//                         <Button
-//                           variant="ghost"
-//                           size="sm"
-//                           className="h-6 w-6 p-0"
-//                           onClick={(e) => {
-//                             e.stopPropagation()
-//                             toggleLayerVisibility(layer.id)
-//                           }}
-//                         >
-//                           {layer.visible ? (
-//                             <Eye className="h-3 w-3" />
-//                           ) : (
-//                             <EyeOff className="h-3 w-3 text-muted-foreground" />
-//                           )}
-//                         </Button>
-//                         <Button
-//                           variant="ghost"
-//                           size="sm"
-//                           className="h-6 w-6 p-0"
-//                           onClick={(e) => {
-//                             e.stopPropagation()
-//                             toggleLayerLock(layer.id)
-//                           }}
-//                         >
-//                           {layer.locked ? (
-//                             <Lock className="h-3 w-3 text-warning" />
-//                           ) : (
-//                             <Unlock className="h-3 w-3" />
-//                           )}
-//                         </Button>
-//                       </div>
-//                     </div>
-//                   )
-//                 })
-//               )}
-//             </div>
-//           </ScrollArea>
-//         </CollapsibleContent>
-//       </Collapsible>
-//     </div>
-//   )
-// }
 'use client'
 
 import React, { useState, useRef } from "react"
@@ -183,6 +43,7 @@ export function LayersPanel() {
   const [editingName, setEditingName] = useState('')
   const [draggedElementId, setDraggedElementId] = useState<string | null>(null)
   const [dragOverElementId, setDragOverElementId] = useState<string | null>(null)
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside' | null>(null)
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set())
   const inputRef = useRef<HTMLInputElement>(null)
   
@@ -196,6 +57,7 @@ export function LayersPanel() {
     renameLayer,
     setElementParent,
     getChildElements,
+    reorderElements,
   } = useCanvasStore()
 
   const handleDoubleClick = (layerId: string, currentName: string) => {
@@ -240,43 +102,68 @@ export function LayersPanel() {
   const handleDragOver = (e: React.DragEvent, elementId: string) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
+    
+    if (draggedElementId === elementId) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    const height = rect.height
+    
+    const element = elements.find(el => el.id === elementId)
+    
+    if (element?.type === 'frame' && y > height * 0.25 && y < height * 0.75) {
+      setDropPosition('inside')
+    } else if (y < height / 2) {
+      setDropPosition('before')
+    } else {
+      setDropPosition('after')
+    }
+    
     setDragOverElementId(elementId)
   }
 
   const handleDragLeave = () => {
     setDragOverElementId(null)
+    setDropPosition(null)
   }
 
   const handleDrop = (e: React.DragEvent, targetElementId: string) => {
     e.preventDefault()
-    if (!draggedElementId || draggedElementId === targetElementId) {
+    if (!draggedElementId || draggedElementId === targetElementId || !dropPosition) {
       setDraggedElementId(null)
       setDragOverElementId(null)
+      setDropPosition(null)
       return
     }
 
-    const draggedElement = elements.find((el) => el.id === draggedElementId)
-    const targetElement = elements.find((el) => el.id === targetElementId)
-
-    if (!draggedElement || !targetElement) {
-      setDraggedElementId(null)
-      setDragOverElementId(null)
-      return
-    }
-
-    // Drop on frame = add to frame
-    if (targetElement.type === 'frame') {
-      setElementParent(draggedElementId, targetElementId)
-      setExpandedParents(new Set(expandedParents).add(targetElementId))
+    if (dropPosition === 'inside') {
+      const targetElement = elements.find((el) => el.id === targetElementId)
+      if (targetElement?.type === 'frame') {
+        setElementParent(draggedElementId, targetElementId)
+        setExpandedParents(new Set(expandedParents).add(targetElementId))
+      }
+    } else {
+      // If moving before/after another layer, inherit its parent
+      const draggedElement = elements.find((el) => el.id === draggedElementId)
+      const targetElement = elements.find((el) => el.id === targetElementId)
+      
+      if (draggedElement && targetElement && draggedElement.parentId !== targetElement.parentId) {
+        setElementParent(draggedElementId, targetElement.parentId || null)
+      }
+      
+      // Reorder items
+      reorderElements(draggedElementId, targetElementId, dropPosition)
     }
 
     setDraggedElementId(null)
     setDragOverElementId(null)
+    setDropPosition(null)
   }
 
   const handleDragEnd = () => {
     setDraggedElementId(null)
     setDragOverElementId(null)
+    setDropPosition(null)
   }
 
   // Render layer tree recursively
@@ -306,10 +193,12 @@ export function LayersPanel() {
             onDrop={(e) => handleDrop(e, element.id)}
             onDragEnd={handleDragEnd}
             className={cn(
-              'flex items-center gap-1 px-1 py-1 rounded-md cursor-pointer group transition-all',
+              'flex items-center gap-1 px-1 py-1 rounded-md cursor-pointer group transition-all relative',
               isSelected ? 'bg-primary/20' : 'hover:bg-muted/50',
               isDragging && 'opacity-50',
-              isDragOver && 'bg-primary/10 border-l-2 border-primary'
+              isDragOver && dropPosition === 'inside' && 'bg-primary/10 ring-1 ring-primary inset-1',
+              isDragOver && dropPosition === 'before' && 'border-t-2 border-primary',
+              isDragOver && dropPosition === 'after' && 'border-b-2 border-primary'
             )}
             style={{ marginLeft: `${depth * 12}px` }}
             onClick={() => !isEditing && selectElement(element.id)}
@@ -352,14 +241,14 @@ export function LayersPanel() {
                 onChange={(e) => setEditingName(e.target.value)}
                 onBlur={() => handleRenameSubmit(layer.id)}
                 onKeyDown={(e) => handleKeyDown(e, layer.id)}
-                className="h-5 text-xs py-0 px-1 flex-1"
+                className="h-5 text-[11px] py-0 px-1 flex-1 min-w-0"
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
               <span
                 className={cn(
-                  'flex-1 text-xs truncate',
-                  isSelected ? 'text-primary' : 'text-foreground'
+                  'flex-1 text-[11px] truncate min-w-0',
+                  isSelected ? 'text-primary font-medium' : 'text-foreground/90'
                 )}
                 onDoubleClick={() => handleDoubleClick(layer.id, layer.name)}
               >
@@ -368,35 +257,35 @@ export function LayersPanel() {
             )}
 
             {/* Controls */}
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity ml-auto">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-5 w-5 p-0"
+                className="h-6 w-6 p-0 hover:bg-muted"
                 onClick={(e) => {
                   e.stopPropagation()
                   toggleLayerVisibility(layer.id)
                 }}
               >
                 {layer.visible ? (
-                  <Eye className="h-3 w-3" />
+                  <Eye className="h-3.5 w-3.5" />
                 ) : (
-                  <EyeOff className="h-3 w-3 text-muted-foreground" />
+                  <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-5 w-5 p-0"
+                className="h-6 w-6 p-0 hover:bg-muted"
                 onClick={(e) => {
                   e.stopPropagation()
                   toggleLayerLock(layer.id)
                 }}
               >
                 {layer.locked ? (
-                  <Lock className="h-3 w-3 text-warning" />
+                  <Lock className="h-3.5 w-3.5 text-warning" />
                 ) : (
-                  <Unlock className="h-3 w-3" />
+                  <Unlock className="h-3.5 w-3.5" />
                 )}
               </Button>
             </div>
@@ -414,7 +303,7 @@ export function LayersPanel() {
   }
 
   return (
-    <div className="w-56 bg-panel-bg border-r border-border flex flex-col">
+    <div className="w-64 bg-panel-bg border-r border-border flex flex-col shrink-0">
       <Collapsible open={isOpen} onOpenChange={setIsOpen} className="flex-1 flex flex-col">
         <CollapsibleTrigger className="flex items-center justify-between p-3 hover:bg-muted/50 transition-colors">
           <div className="flex items-center gap-2">
@@ -428,43 +317,42 @@ export function LayersPanel() {
           )} />
         </CollapsibleTrigger>
 
-        <CollapsibleContent className="flex-1">
-          <ScrollArea className="h-[calc(100vh-200px)]">
+        <CollapsibleContent className="flex-1 min-h-0 flex flex-col">
+          <ScrollArea className="flex-1 w-full">
             <div className="p-2 space-y-0">
               {elements.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-4">
                   No layers yet. Start drawing!
                 </p>
               ) : (
-                <>
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault()
-                      e.dataTransfer.dropEffect = 'move'
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      if (draggedElementId) {
-                        const draggedElement = elements.find((el) => el.id === draggedElementId)
-                        // If dragging from a frame, remove it from parent
-                        if (draggedElement?.parentId) {
-                          setElementParent(draggedElementId, null)
-                        }
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    if (draggedElementId) {
+                      const draggedElement = elements.find((el) => el.id === draggedElementId)
+                      // If dragging from a frame, remove it from parent
+                      if (draggedElement?.parentId) {
+                        setElementParent(draggedElementId, null)
                       }
-                      setDraggedElementId(null)
-                      setDragOverElementId(null)
-                    }}
-                    className="min-h-8 px-2"
-                  >
-                    {renderLayerTree()}
-                  </div>
-                  <div className="text-xs text-muted-foreground px-2 py-2 border-t border-border mt-2">
-                    💡 Drag layers into frames to nest. Drag out to remove from frame.
-                  </div>
-                </>
+                    }
+                    setDraggedElementId(null)
+                    setDragOverElementId(null)
+                  }}
+                  className="min-h-8 px-2"
+                >
+                  {renderLayerTree()}
+                </div>
               )}
             </div>
           </ScrollArea>
+          
+          <div className="text-[10px] leading-tight text-muted-foreground px-4 py-3 border-t border-border bg-panel-bg/50 mt-auto">
+            💡 Drag layers into frames to nest. Drag out to remove from frame.
+          </div>
         </CollapsibleContent>
       </Collapsible>
     </div>

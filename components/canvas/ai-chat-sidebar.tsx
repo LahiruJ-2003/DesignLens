@@ -8,6 +8,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useCanvasStore } from "@/lib/canvas-store";
 import {
   analyzeDesign,
+  analyzeDesignWithAI,
   calculateDesignScore,
   generateIssueSummary,
 } from "@/lib/design-analyzer";
@@ -39,16 +40,19 @@ function getUIMessageText(msg: UIMessage): string {
 
 export function AIChatSidebar() {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [isIssuesExpanded, setIsIssuesExpanded] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState("");
 
   const {
+    currentProject,
     elements,
     issues,
     setIssues,
     setIsAnalyzing,
     showIssueHighlights,
     toggleIssueHighlights,
+    setMlScore,
   } = useCanvasStore();
 
   // Use a ref to always get the latest elements
@@ -58,7 +62,9 @@ export function AIChatSidebar() {
   }, [elements]);
 
   const getLatestDesignContext = () => {
-    const currentElements = elementsRef.current;
+    const currentState = useCanvasStore.getState();
+    const currentElements = currentState.elements;
+    const currentMlScore = currentState.mlScore;
     
     if (currentElements.length === 0) {
       return "The canvas is currently empty. No design elements have been added yet.";
@@ -76,7 +82,7 @@ export function AIChatSidebar() {
     ];
 
     const currentIssues = analyzeDesign(currentElements);
-    const score = calculateDesignScore(currentIssues);
+    const score = currentMlScore !== null ? Math.round(currentMlScore) : 0;
     const summary = generateIssueSummary(currentIssues);
 
     return `Design Overview:
@@ -137,6 +143,11 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
     },
   });
 
+  // Clear chat messages when project changes
+  useEffect(() => {
+    setMessages([]);
+  }, [currentProject?.id, setMessages]);
+
   // Generate local analysis as fallback when Gemini is rate limited
   const generateLocalAnalysis = () => {
     const currentElements = elementsRef.current;
@@ -169,9 +180,13 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const scrollElement = scrollRef.current;
+      scrollElement.scrollTo({
+        top: scrollElement.scrollHeight,
+        behavior: 'smooth'
+      });
     }
-  }, [messages]);
+  }, [messages, isLoading, localFallbackMessage]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,16 +196,31 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
     setInputValue("");
   };
 
-  const analyzeDesignAction = () => {
+  const analyzeDesignAction = async () => {
     setIsAnalyzing(true);
-    const currentIssues = analyzeDesign(elements);
-    setIssues(currentIssues);
+    
+    // 1. Attempt to hit the highly-accurate PyTorch Python Backend first
+    const aiResponse = await analyzeDesignWithAI(elements);
+    
+    if (aiResponse) {
+      // Python backend returned successfully!
+      const ML_Issues = aiResponse.issues || [];
+      const heuristicIssues = analyzeDesign(elements);
+      setIssues([...ML_Issues, ...heuristicIssues]);
+      setMlScore(aiResponse.overall_score);
+      console.log("ViGT Model Base Score:", aiResponse.overall_score);
+    } else {
+      // 2. Fallback to local heuristic rules if Python API isn't running
+      const currentIssues = analyzeDesign(elements);
+      setIssues(currentIssues);
+      setMlScore(null);
+    }
 
     sendMessage({
       text: "Please analyze my current design and provide detailed UI/UX feedback. Focus on color contrast, typography, spacing, alignment, and accessibility issues. Give me specific, actionable suggestions for improvement.",
     });
 
-    setTimeout(() => setIsAnalyzing(false), 1000);
+    setIsAnalyzing(false);
   };
 
   const clearChat = () => {
@@ -235,9 +265,9 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
   }
 
   return (
-    <div className="w-80 bg-card border-l border-border flex flex-col">
+    <div className="w-80 bg-card border-l border-border flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-border">
+      <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center">
             <Sparkles className="h-4 w-4 text-primary" />
@@ -272,7 +302,7 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
       </div>
 
       {/* Quick Actions */}
-      <div className="p-3 border-b border-border space-y-2">
+      <div className="flex-shrink-0 p-3 border-b border-border space-y-2">
         <Button
           variant="outline"
           size="sm"
@@ -300,7 +330,7 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
 
       {/* Rate Limit Warning */}
       {rateLimitError && (
-        <div className="p-3 border-b border-border bg-yellow-500/10">
+        <div className="flex-shrink-0 p-3 border-b border-border bg-yellow-500/10">
           <div className="flex items-center gap-2 text-xs">
             <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />
             <div>
@@ -326,149 +356,162 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
 
       {/* Issues Panel */}
       {issues.length > 0 && (
-        <div className="p-3 border-b border-border">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-xs font-medium text-muted-foreground">
-              Issues Found
-            </h4>
-            <Badge variant="outline" className="text-[10px]">
-              {issues.length}
-            </Badge>
+        <div className="flex-shrink-0 flex flex-col p-3 border-b border-border transition-all duration-200">
+          <div 
+            className="flex items-center justify-between mb-2 cursor-pointer hover:opacity-80"
+            onClick={() => setIsIssuesExpanded(!isIssuesExpanded)}
+          >
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Issues Found
+              </h4>
+              <Badge variant="outline" className="text-[10px] h-4">
+                {issues.length}
+              </Badge>
+            </div>
+            <Button variant="ghost" size="sm" className="h-4 w-4 p-0">
+              {isIssuesExpanded ? (
+                <ChevronLeft className="h-3 w-3 rotate-90" />
+              ) : (
+                <ChevronLeft className="h-3 w-3 -rotate-90" />
+              )}
+            </Button>
           </div>
-          <ScrollArea className="h-32">
-            <div className="space-y-1.5">
+          
+          {isIssuesExpanded && (
+            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 scrollbar-transparent">
               {issues.map((issue) => (
                 <div
                   key={issue.id}
                   className={cn(
-                    "flex items-start gap-2 p-2 rounded-md text-xs",
-                    issue.severity === "error" && "bg-destructive/10",
-                    issue.severity === "warning" && "bg-yellow-500/10",
-                    issue.severity === "info" && "bg-blue-500/10"
+                    "flex items-start gap-2 p-2 rounded-md text-[11px] leading-tight transition-colors",
+                    issue.severity === "error" && "bg-destructive/10 border border-destructive/20",
+                    issue.severity === "warning" && "bg-yellow-500/10 border border-yellow-500/20",
+                    issue.severity === "info" && "bg-blue-500/10 border border-blue-500/20"
                   )}
                 >
-                  {getSeverityIcon(issue.severity)}
+                  <div className="mt-0.5 shrink-0">
+                    {getSeverityIcon(issue.severity)}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground truncate">
+                    <p className="font-semibold text-foreground">
                       {issue.message}
                     </p>
-                    <p className="text-muted-foreground mt-0.5 line-clamp-2">
+                    <p className="text-muted-foreground mt-0.5 text-[10px]">
                       {issue.suggestion}
                     </p>
                   </div>
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          )}
         </div>
       )}
 
       {/* Chat Messages */}
-      <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="p-3 space-y-4">
-            {messages.length === 0 ? (
-              <div className="text-center py-8">
-                <MessageSquare className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  Ask DesignLens about your design!
-                </p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
-                  Get AI-powered feedback on colors, typography, spacing, and
-                  accessibility.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                  {[
-                    "Analyze my design",
-                    "Check color contrast",
-                    "Improve typography",
-                  ].map((suggestion) => (
-                    <Button
-                      key={suggestion}
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-7 bg-transparent"
-                      onClick={() => setInputValue(suggestion)}
-                    >
-                      {suggestion}
-                    </Button>
-                  ))}
-                </div>
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-transparent" ref={scrollRef}>
+        <div className="p-3 space-y-4">
+          {messages.length === 0 ? (
+            <div className="text-center py-8">
+              <MessageSquare className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                Ask DesignLens about your design!
+              </p>
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                Get AI-powered feedback on colors, typography, spacing, and
+                accessibility.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                {[
+                  "Analyze my design",
+                  "Check color contrast",
+                  "Improve typography",
+                ].map((suggestion) => (
+                  <Button
+                    key={suggestion}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7 bg-transparent"
+                    onClick={() => setInputValue(suggestion)}
+                  >
+                    {suggestion}
+                  </Button>
+                ))}
               </div>
-            ) : (
-              messages.map((message) => (
+            </div>
+          ) : (
+            messages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  "flex gap-2",
+                  message.role === "user" ? "justify-end" : "justify-start"
+                )}
+              >
                 <div
-                  key={message.id}
                   className={cn(
-                    "flex gap-2",
-                    message.role === "user" ? "justify-end" : "justify-start"
+                    "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                    message.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-foreground"
                   )}
                 >
-                  <div
-                    className={cn(
-                      "max-w-[85%] rounded-lg px-3 py-2 text-sm",
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-foreground"
-                    )}
-                  >
-                    <div className="whitespace-pre-wrap">
-                      {getUIMessageText(message)}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-            {isLoading && (
-              <div className="flex gap-2 justify-start">
-                <div className="bg-muted rounded-lg px-3 py-2">
-                  <div className="flex gap-1">
-                    <span
-                      className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    />
-                    <span
-                      className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    />
-                    <span
-                      className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    />
+                  <div className="whitespace-pre-wrap">
+                    {getUIMessageText(message)}
                   </div>
                 </div>
               </div>
-            )}
-            {localFallbackMessage && (
-              <div className="flex gap-2 justify-start">
-                <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-yellow-500/10 border border-yellow-500/20">
-                  <div className="whitespace-pre-wrap text-foreground">
-                    {localFallbackMessage.split('\n').map((line, i) => {
-                      if (line.startsWith('**') && line.endsWith('**')) {
-                        return <p key={i} className="font-semibold mt-2 first:mt-0">{line.replace(/\*\*/g, '')}</p>;
-                      }
-                      if (line.includes('**')) {
-                        const parts = line.split(/\*\*(.*?)\*\*/);
-                        return (
-                          <p key={i}>
-                            {parts.map((part, j) => 
-                              j % 2 === 1 ? <strong key={j}>{part}</strong> : part
-                            )}
-                          </p>
-                        );
-                      }
-                      return <p key={i}>{line}</p>;
-                    })}
-                  </div>
+            ))
+          )}
+          {isLoading && (
+            <div className="flex gap-2 justify-start">
+              <div className="bg-muted rounded-lg px-3 py-2">
+                <div className="flex gap-1">
+                  <span
+                    className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce"
+                    style={{ animationDelay: "0ms" }}
+                  />
+                  <span
+                    className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms" }}
+                  />
+                  <span
+                    className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms" }}
+                  />
                 </div>
               </div>
-            )}
-          </div>
-        </ScrollArea>
+            </div>
+          )}
+          {localFallbackMessage && (
+            <div className="flex gap-2 justify-start">
+              <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-yellow-500/10 border border-yellow-500/20">
+                <div className="whitespace-pre-wrap text-foreground">
+                  {localFallbackMessage.split('\n').map((line, i) => {
+                    if (line.startsWith('**') && line.endsWith('**')) {
+                      return <p key={i} className="font-semibold mt-2 first:mt-0">{line.replace(/\*\*/g, '')}</p>;
+                    }
+                    if (line.includes('**')) {
+                      const parts = line.split(/\*\*(.*?)\*\*/);
+                      return (
+                        <p key={i}>
+                          {parts.map((part, j) => 
+                            j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+                          )}
+                        </p>
+                      );
+                    }
+                    return <p key={i}>{line}</p>;
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="p-3 border-t border-border">
+      <form onSubmit={handleSubmit} className="flex-shrink-0 p-3 border-t border-border bg-card">
         <div className="flex gap-2">
           <Input
             value={inputValue}

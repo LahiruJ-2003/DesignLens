@@ -22,7 +22,7 @@ export function CanvasEditor() {
   const [browserOpen, setBrowserOpen] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const { currentProject, createProject, projects } = useCanvasStore()
-  const { score, errorCount, warningCount, infoCount } = useDesignAnalysis({
+  const { score, errorCount, warningCount, infoCount, isAnalyzing } = useDesignAnalysis({
     debounceMs: 800,
     autoAnalyze: true,
   })
@@ -139,7 +139,7 @@ export function CanvasEditor() {
               variant={score >= 80 ? 'default' : score >= 50 ? 'outline' : 'destructive'}
               className="font-mono"
             >
-              {score}/100
+              {isAnalyzing ? '...' : `${score}/100`}
             </Badge>
           </div>
         </div>
