@@ -229,19 +229,41 @@ import {
   Undo,
   Redo,
   Home,
+  ChevronDown,
+  Triangle,
+  Star,
+  ArrowUpRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
 import { UserMenu } from '@/components/user-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
-const tools: { type: ToolType; icon: React.ReactNode; label: string; shortcut: string }[] = [
+const selectionTools: { type: ToolType; icon: React.ReactNode; label: string; shortcut: string }[] = [
   { type: 'select', icon: <MousePointer2 className="h-4 w-4" />, label: 'Select', shortcut: 'V' },
   { type: 'hand', icon: <Hand className="h-4 w-4" />, label: 'Hand', shortcut: 'H' },
+]
+
+const tools: { type: ToolType; icon: React.ReactNode; label: string; shortcut: string }[] = [
   { type: 'frame', icon: <Frame className="h-4 w-4" />, label: 'Frame', shortcut: 'F' },
+]
+
+const shapeTools: { type: ToolType; icon: React.ReactNode; label: string; shortcut: string }[] = [
   { type: 'rectangle', icon: <Square className="h-4 w-4" />, label: 'Rectangle', shortcut: 'R' },
   { type: 'circle', icon: <Circle className="h-4 w-4" />, label: 'Circle', shortcut: 'O' },
   { type: 'line', icon: <Minus className="h-4 w-4" />, label: 'Line', shortcut: 'L' },
+  { type: 'arrow', icon: <ArrowUpRight className="h-4 w-4" />, label: 'Arrow', shortcut: 'A' },
+  { type: 'triangle', icon: <Triangle className="h-4 w-4" />, label: 'Triangle', shortcut: 'W' },
+  { type: 'star', icon: <Star className="h-4 w-4" />, label: 'Star', shortcut: 'S' },
+]
+
+const otherTools: { type: ToolType; icon: React.ReactNode; label: string; shortcut: string }[] = [
   { type: 'text', icon: <Type className="h-4 w-4" />, label: 'Text', shortcut: 'T' },
   { type: 'image', icon: <ImageIcon className="h-4 w-4" />, label: 'Image', shortcut: 'I' },
 ]
@@ -274,6 +296,12 @@ export function Toolbar() {
     window.location.href = '/'
   }
 
+  const isShapeActive = activeTool === 'rectangle' || activeTool === 'circle'
+  const activeShape = shapeTools.find(t => t.type === activeTool) || shapeTools[0]
+
+  const isSelectionActive = activeTool === 'select' || activeTool === 'hand'
+  const activeSelection = selectionTools.find(t => t.type === activeTool) || selectionTools[0]
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex items-center gap-1 bg-panel-bg border-b border-border px-3 py-2">
@@ -305,7 +333,7 @@ export function Toolbar() {
               alt="DesignLens"
               width={28}
               height={28}
-              className="object-contain"
+              priority
             />
           </div>
           <span className="font-semibold text-sm text-foreground hidden sm:inline">DesignLens</span>
@@ -315,7 +343,88 @@ export function Toolbar() {
 
         {/* Main Tools */}
         <div className="flex items-center gap-0.5">
+          {/* Selection Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-8 px-1.5 gap-1',
+                  isSelectionActive && 'bg-primary/20 text-primary hover:bg-primary/30'
+                )}
+              >
+                {activeSelection.icon}
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-32 z-[100]">
+              {selectionTools.map((tool) => (
+                <DropdownMenuItem
+                  key={tool.type}
+                  className="gap-2"
+                  onClick={() => setActiveTool(tool.type)}
+                >
+                  {tool.icon}
+                  <span>{tool.label}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">{tool.shortcut}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {tools.map((tool) => (
+            <Tooltip key={tool.type}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    'h-8 w-8 p-0',
+                    activeTool === tool.type && 'bg-primary/20 text-primary hover:bg-primary/30'
+                  )}
+                  onClick={() => setActiveTool(tool.type)}
+                >
+                  {tool.icon}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{tool.label} <span className="text-muted-foreground ml-1">{tool.shortcut}</span></p>
+              </TooltipContent>
+            </Tooltip>
+          ))}
+
+          {/* Shapes Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  'h-8 px-1.5 gap-1',
+                  isShapeActive && 'bg-primary/20 text-primary hover:bg-primary/30'
+                )}
+              >
+                {activeShape.icon}
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-40 z-[100]">
+              {shapeTools.map((tool) => (
+                <DropdownMenuItem
+                  key={tool.type}
+                  className="gap-2"
+                  onClick={() => setActiveTool(tool.type)}
+                >
+                  {tool.icon}
+                  <span>{tool.label}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">{tool.shortcut}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {otherTools.map((tool) => (
             <Tooltip key={tool.type}>
               <TooltipTrigger asChild>
                 <Button
