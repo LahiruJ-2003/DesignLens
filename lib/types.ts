@@ -1,5 +1,19 @@
 // Canvas element types
-export type ElementType = 'rectangle' | 'circle' | 'text' | 'image' | 'line' | 'frame'
+export type ElementType = 'rectangle' | 'circle' | 'text' | 'image' | 'line' | 'frame' | 'triangle' | 'star' | 'arrow'
+export type FillType = 'solid' | 'gradient'
+export type GradientType = 'linear' | 'radial'
+
+export interface GradientStop {
+  color: string
+  offset: number
+  opacity?: number // New: Opacity for this specific stop (0 to 1)
+}
+
+export interface GradientConfig {
+  type: GradientType
+  stops: GradientStop[]
+  angle: number // Angle in degrees for linear, or ignored for radial
+}
 
 export interface CanvasElement {
   id: string
@@ -9,11 +23,48 @@ export interface CanvasElement {
   width: number
   height: number
   rotation: number
+  name: string
+  
+  // Appearance
   fill: string
+  fillType?: FillType
+  gradient?: GradientConfig
   stroke: string
   strokeWidth: number
+  strokeType?: 'solid' | 'gradient' // New
+  strokeGradient?: GradientConfig // New
   opacity: number
   cornerRadius?: number
+  
+  // Shadows
+  shadowEnabled?: boolean
+  shadowColor?: string
+  shadowBlur?: number
+  shadowX?: number
+  shadowY?: number
+  // Phase 3: Advanced Effects
+  blurEnabled?: boolean
+  blurType?: 'layer' | 'background'
+  blurAmount?: number
+  blendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn' | 'hard-light' | 'soft-light' | 'difference' | 'exclusion' | 'hue' | 'saturation' | 'color' | 'luminosity'
+  constraints?: {
+    horizontal: 'left' | 'right' | 'center' | 'left-right' | 'scale'
+    vertical: 'top' | 'bottom' | 'center' | 'top-bottom' | 'scale'
+  }
+
+  // Phase 4: Industrial Frames & Auto Layout
+  clipContent?: boolean
+  layoutMode?: 'none' | 'vertical' | 'horizontal'
+  itemSpacing?: number
+  padding?: {
+    top: number
+    right: number
+    bottom: number
+    left: number
+  }
+  src?: string // For images
+  
+  // Text Properties
   text?: string
   fontSize?: number
   fontFamily?: string
@@ -21,11 +72,23 @@ export interface CanvasElement {
   textAlign?: 'left' | 'center' | 'right'
   textStroke?: string
   textStrokeWidth?: number
+  letterSpacing?: number
+  lineHeight?: number
+  textDecoration?: 'none' | 'underline' | 'line-through'
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize'
+  
+  // Other
   imageUrl?: string
   locked?: boolean
   visible?: boolean
   parentId?: string
-  name: string
+  
+  // Phase 2 Properties
+  cornerSmoothing?: number // 0 to 1
+  strokePosition?: 'center' | 'inside' | 'outside'
+  paragraphSpacing?: number
+  paragraphIndent?: number
+  textCase?: 'none' | 'uppercase' | 'lowercase' | 'capitalize'
 }
 
 export interface Layer {
@@ -73,4 +136,4 @@ export interface ChatMessage {
 }
 
 // Tool types
-export type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'frame' | 'hand' | 'image'
+export type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'frame' | 'hand' | 'image' | 'triangle' | 'star' | 'arrow'

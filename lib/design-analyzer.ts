@@ -373,3 +373,26 @@ export function generateIssueSummary(issues: UIIssue[]): string {
   if (parts.length === 0) return 'No issues found. Great job!'
   return `Found ${parts.join(', ')}.`
 }
+
+// NEW: Python PyTorch AI Backend Integration (Phase 4)
+// ---------------------------------------------------------
+export async function analyzeDesignWithAI(elements: CanvasElement[]) {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
+  
+  try {
+    const res = await fetch(`${backendUrl}/api/analyze-ui`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ elements }),
+    });
+    
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    
+    return await res.json();
+  } catch (error) {
+    console.error("AI Backend is unreachable. Ensure the FastAPI server is running on port 8000.", error);
+    return null;
+  }
+}

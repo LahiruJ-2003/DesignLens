@@ -2,7 +2,8 @@
 
 import { useEffect, useCallback, useRef } from 'react'
 import { useCanvasStore } from '@/lib/canvas-store'
-import { analyzeDesign, calculateDesignScore, generateIssueSummary } from '@/lib/design-analyzer'
+import { analyzeDesign, analyzeDesignWithAI, calculateDesignScore, generateIssueSummary } from '@/lib/design-analyzer'
+
 
 interface UseDesignAnalysisOptions {
   debounceMs?: number
@@ -12,19 +13,29 @@ interface UseDesignAnalysisOptions {
 export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
   const { debounceMs = 1000, autoAnalyze = true } = options
   
-  const { elements, setIssues, setIsAnalyzing, issues } = useCanvasStore()
+  const { elements, setIssues, isAnalyzing, setIsAnalyzing, issues, mlScore, setMlScore } = useCanvasStore()
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastElementsRef = useRef<string>('')
 
-  const runAnalysis = useCallback(() => {
+  const runAnalysis = useCallback(async () => {
     setIsAnalyzing(true)
     
-    // Run analysis
-    const detectedIssues = analyzeDesign(elements)
-    setIssues(detectedIssues)
+    // Ping Python PyTorch Backend
+    const aiResponse = await analyzeDesignWithAI(elements)
+    if (aiResponse) {
+      // Merge local spatial heuristic issues with ML model output
+      const localIssues = analyzeDesign(elements)
+      setIssues([...(aiResponse.issues || []), ...localIssues])
+      setMlScore(aiResponse.overall_score)
+    } else {
+      // Fallback
+      const detectedIssues = analyzeDesign(elements)
+      setIssues(detectedIssues)
+      setMlScore(null)
+    }
     
     setIsAnalyzing(false)
-  }, [elements, setIssues, setIsAnalyzing])
+  }, [elements, setIssues, setIsAnalyzing, setMlScore])
 
   // Debounced auto-analysis when elements change
   useEffect(() => {
@@ -65,7 +76,7 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     }
   }, [elements, debounceMs, autoAnalyze, runAnalysis])
 
-  const score = calculateDesignScore(issues)
+  const score = mlScore !== null ? Math.round(mlScore) : 0
   const summary = generateIssueSummary(issues)
 
   return {
@@ -73,6 +84,7 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     score,
     summary,
     runAnalysis,
+    isAnalyzing,
     errorCount: issues.filter((i) => i.severity === 'error').length,
     warningCount: issues.filter((i) => i.severity === 'warning').length,
     infoCount: issues.filter((i) => i.severity === 'info').length,
