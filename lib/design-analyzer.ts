@@ -1,15 +1,15 @@
 import type { CanvasElement, UIIssue } from './types'
 
-// WCAG color contrast ratios
+// wcag stuff
 const CONTRAST_RATIO_AA_NORMAL = 4.5
 const CONTRAST_RATIO_AA_LARGE = 3
 const CONTRAST_RATIO_AAA_NORMAL = 7
 const CONTRAST_RATIO_AAA_LARGE = 4.5
 
-// Minimum touch target sizes
+// min size for tapping
 const MIN_TOUCH_TARGET = 44
 
-// Typography standards
+// text rules
 const MIN_BODY_FONT_SIZE = 14
 const MIN_READABLE_FONT_SIZE = 12
 const MAX_LINE_LENGTH = 75 // characters
@@ -32,7 +32,7 @@ const defaultConfig: AnalysisConfig = {
   checkColorHarmony: true,
 }
 
-// Color utility functions
+// color helpers
 export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
   return result
@@ -104,7 +104,7 @@ export function getColorHarmony(colors: string[]): string {
   return 'mixed'
 }
 
-// Main analysis function
+// main thing
 export function analyzeDesign(
   elements: CanvasElement[],
   config: AnalysisConfig = defaultConfig
@@ -114,18 +114,18 @@ export function analyzeDesign(
 
   const generateId = () => `issue-${++issueId}`
 
-  // Filter visible elements only
+  // skip hidden stuff
   const visibleElements = elements.filter((el) => el.visible !== false)
 
   if (visibleElements.length === 0) {
     return issues
   }
 
-  // 1. Contrast Analysis
+  // 1. contrast check
   if (config.checkContrast) {
     visibleElements.forEach((el) => {
       if (el.type === 'text' && el.fill) {
-        // Check text against common backgrounds
+        // check text against backgrounds
         const textColor = el.fill
         const assumedBg = '#ffffff' // Assume white background for simplicity
         const ratio = getContrastRatio(textColor, assumedBg)
@@ -146,7 +146,7 @@ export function analyzeDesign(
         }
       }
       
-      // Check for potentially invisible elements (very low contrast fill/stroke)
+      // check if things are basically invisible
       if (el.fill && el.stroke && el.strokeWidth > 0) {
         const ratio = getContrastRatio(el.fill, el.stroke)
         if (ratio < 1.5) {
@@ -164,9 +164,9 @@ export function analyzeDesign(
     })
   }
 
-  // 2. Spacing Analysis
+  // 2. spacing stuff
   if (config.checkSpacing) {
-    // Check for overlapping elements
+    // check if things are on top of each other
     visibleElements.forEach((el1, i) => {
       visibleElements.slice(i + 1).forEach((el2) => {
         if (elementsOverlap(el1, el2)) {
@@ -183,7 +183,7 @@ export function analyzeDesign(
       })
     })
 
-    // Check for inconsistent spacing between elements
+    // check wobbly spacing
     const sortedByX = [...visibleElements].sort((a, b) => a.x - b.x)
     const horizontalGaps: number[] = []
     
@@ -211,15 +211,15 @@ export function analyzeDesign(
     }
   }
 
-  // 3. Alignment Analysis
+  // 3. alignment
   if (config.checkAlignment) {
-    // Check for near-alignments (elements almost aligned but not quite)
+    // check things that are slightly off
     const xPositions = visibleElements.map((el) => el.x)
     const yPositions = visibleElements.map((el) => el.y)
     const rightEdges = visibleElements.map((el) => el.x + el.width)
     const bottomEdges = visibleElements.map((el) => el.y + el.height)
     
-    // Check for near-miss left alignments
+    // near miss left aligns
     xPositions.forEach((x1, i) => {
       xPositions.slice(i + 1).forEach((x2, j) => {
         const diff = Math.abs(x1 - x2)
@@ -237,12 +237,12 @@ export function analyzeDesign(
     })
   }
 
-  // 4. Typography Analysis
+  // 4. text stuff
   if (config.checkTypography) {
     const textElements = visibleElements.filter((el) => el.type === 'text')
     
     textElements.forEach((el) => {
-      // Check minimum font size
+      // check if text is too tiny
       if (el.fontSize && el.fontSize < MIN_READABLE_FONT_SIZE) {
         issues.push({
           id: generateId(),
@@ -266,7 +266,7 @@ export function analyzeDesign(
       }
     })
     
-    // Check for too many different font sizes
+    // complain if there are too many sizes
     const fontSizes = [...new Set(textElements.map((el) => el.fontSize).filter(Boolean))]
     if (fontSizes.length > 4) {
       issues.push({
@@ -280,10 +280,10 @@ export function analyzeDesign(
     }
   }
 
-  // 5. Accessibility Analysis
+  // 5. a11y stuff
   if (config.checkAccessibility) {
     visibleElements.forEach((el) => {
-      // Check touch target size
+      // check tap size
       if (el.width < MIN_TOUCH_TARGET || el.height < MIN_TOUCH_TARGET) {
         issues.push({
           id: generateId(),
@@ -338,7 +338,7 @@ function elementsOverlap(el1: CanvasElement, el2: CanvasElement): boolean {
   )
 }
 
-// Calculate design score based on issues
+// calc score
 export function calculateDesignScore(issues: UIIssue[]): number {
   let score = 100
   
@@ -359,7 +359,7 @@ export function calculateDesignScore(issues: UIIssue[]): number {
   return Math.max(0, Math.min(100, score))
 }
 
-// Generate summary text for issues
+// make summary string
 export function generateIssueSummary(issues: UIIssue[]): string {
   const errors = issues.filter((i) => i.severity === 'error').length
   const warnings = issues.filter((i) => i.severity === 'warning').length
@@ -374,8 +374,7 @@ export function generateIssueSummary(issues: UIIssue[]): string {
   return `Found ${parts.join(', ')}.`
 }
 
-// NEW: Python PyTorch AI Backend Integration (Phase 4)
-// ---------------------------------------------------------
+// new ai backend integration thingy
 export async function analyzeDesignWithAI(elements: CanvasElement[]) {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
   
