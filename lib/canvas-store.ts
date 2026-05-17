@@ -1,3 +1,5 @@
+// This is the global "brain" of the frontend using Zustand.
+// It stores all the canvas elements, layers, history (undo/redo), and handles syncing projects.
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CanvasElement, Layer, ToolType, UIIssue, ChatMessage, DesignProject } from './types'
@@ -111,6 +113,8 @@ interface CanvasState {
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
+// Zustand store definition. We use the 'persist' middleware so your canvas doesn't 
+// disappear if you accidentally refresh the page (saves to localStorage).
 export const useCanvasStore = create<CanvasState>()(
   persist(
     (set, get) => ({

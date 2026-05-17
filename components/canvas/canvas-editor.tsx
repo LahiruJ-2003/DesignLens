@@ -22,14 +22,19 @@ export function CanvasEditor() {
   const [browserOpen, setBrowserOpen] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const { currentProject, createProject, projects } = useCanvasStore()
+  
+  // This hook constantly runs our local UI heuristics (contrast, sizing, etc.)
+  // We debounce it so it doesn't freeze the browser while you're dragging stuff around
   const { score, errorCount, warningCount, infoCount, isAnalyzing } = useDesignAnalysis({
     debounceMs: 800,
     autoAnalyze: true,
   })
   
-  // Collaboration
+  // Collaboration setup (Liveblocks)
+  // Grabs the list of other people in the room and lets us broadcast our mouse position
   const { collaborators, updateCursor, sessionId } = useCollaboration()
 
+  // Standard React trick to avoid hydration mismatch errors with Next.js SSR
   useEffect(() => {
     setIsMounted(true)
   }, [])
@@ -148,9 +153,10 @@ export function CanvasEditor() {
       {/* Toolbar */}
       <Toolbar />
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Live Cursors Overlay */}
+        {/* We map through everyone else in the room and draw their little colored mouse pointers */}
         {collaborators.map((collab) => (
           collab.presence.cursor && (
             <div

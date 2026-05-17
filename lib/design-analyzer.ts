@@ -1,15 +1,16 @@
 import type { CanvasElement, UIIssue } from './types'
 
-// wcag stuff
+// WCAG (Web Content Accessibility Guidelines) contrast requirements
+// We use these to make sure text is actually readable against its background
 const CONTRAST_RATIO_AA_NORMAL = 4.5
 const CONTRAST_RATIO_AA_LARGE = 3
 const CONTRAST_RATIO_AAA_NORMAL = 7
 const CONTRAST_RATIO_AAA_LARGE = 4.5
 
-// min size for tapping
+// Minimum size for buttons/interactive elements (Apple/Google standard is usually 44-48px)
 const MIN_TOUCH_TARGET = 44
 
-// text rules
+// Basic typography rules to prevent unreadable text or super long lines
 const MIN_BODY_FONT_SIZE = 14
 const MIN_READABLE_FONT_SIZE = 12
 const MAX_LINE_LENGTH = 75 // characters
@@ -104,7 +105,9 @@ export function getColorHarmony(colors: string[]): string {
   return 'mixed'
 }
 
-// main thing
+// This is our main local heuristic analyzer. 
+// Before sending to the AI model, it checks for basic, mathematically provable design flaws 
+// like bad contrast, overlapping elements, and tiny fonts.
 export function analyzeDesign(
   elements: CanvasElement[],
   config: AnalysisConfig = defaultConfig
@@ -374,9 +377,10 @@ export function generateIssueSummary(issues: UIIssue[]): string {
   return `Found ${parts.join(', ')}.`
 }
 
-// new ai backend integration thingy
+// This function handles the connection to our Python FastAPI backend
+// It sends the canvas elements over to be processed by the Vision-Graph Transformer (ViGT) model
 export async function analyzeDesignWithAI(elements: CanvasElement[]) {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
   
   try {
     const res = await fetch(`${backendUrl}/api/analyze-ui`, {

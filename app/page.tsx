@@ -57,7 +57,9 @@ export default function Home() {
   const { isLoaded, isSignedIn } = useUser()
   const router = useRouter()
 
-  // Mount effect to handle client-side logic and check search params
+  // This effect runs once when the component mounts on the client.
+  // We check the URL to see if someone clicked a share link (e.g., ?room=123).
+  // If they did, we save the room ID and automatically show the editor.
   useEffect(() => {
     setHasMounted(true)
     const params = new URLSearchParams(window.location.search)
@@ -78,6 +80,8 @@ export default function Home() {
   }, [isSignedIn])
 
   // Handle automatic redirect to sign-in for users with a share link
+  // If a user isn't logged in but tries to open a shared room, we bounce them to Clerk sign-in,
+  // and pass the room URL so they come right back here after logging in.
   useEffect(() => {
     // Only auto-redirect if they were NOT previously signed in during this session
     if (isLoaded && !isSignedIn && !wasSignedIn.current && sharedRoomId && hasMounted) {
@@ -110,6 +114,7 @@ export default function Home() {
   }
 
   // Show editor if user has explicitly clicked start/load (overrides currentProject)
+  // We wrap it in LiveblocksProvider so real-time multiplayer cursors and changes work out of the box.
   if (showEditor) {
     return (
       <LiveblocksProvider roomId={sharedRoomId || currentProject?.id || 'designlens-room-2'}>
