@@ -22,7 +22,6 @@ export function DesignCanvas() {
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
   const [editingText, setEditingText] = useState('')
-  const [altPressed, setAltPressed] = useState(false)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const textInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -261,12 +260,19 @@ export function DesignCanvas() {
             }
           })
           
-          const newParentId = bestParent ? (bestParent as CanvasElement).id : undefined
-          
+          const droppedParentId = bestParent ? (bestParent as CanvasElement).id : undefined
+
+          // If element is already inside a frame and the drop didn't land on a different
+          // frame, keep it in its current frame — never unparent by dragging within/near
+          // the frame boundary. Reparent only when explicitly moved into another frame.
+          const newParentId = (element.parentId && droppedParentId === undefined)
+            ? element.parentId
+            : droppedParentId
+
           // 3. If parent changed, update all selected root elements
           if (newParentId !== element.parentId) {
             const updates: Record<string, Partial<CanvasElement>> = {}
-            
+
             selectedIds.forEach(id => {
               const el = elementMap.get(id)
               if (el) {
@@ -275,7 +281,7 @@ export function DesignCanvas() {
                 if (isRoot) {
                   const elAbs = getElementAbsolutePos(el, elementMap)
                   let newX, newY
-                  
+
                   if (bestParent) {
                     const destParentAbs = getElementAbsolutePos(bestParent, elementMap)
                     newX = elAbs.x - destParentAbs.x
@@ -284,11 +290,11 @@ export function DesignCanvas() {
                     newX = elAbs.x
                     newY = elAbs.y
                   }
-                  
-                  updates[id] = { 
-                    parentId: newParentId, 
-                    x: newX, 
-                    y: newY 
+
+                  updates[id] = {
+                    parentId: newParentId,
+                    x: newX,
+                    y: newY
                   }
                 }
               }
@@ -322,13 +328,30 @@ export function DesignCanvas() {
         
         const elementCount = elements.filter((el) => el.type === activeTool).length + 1
         
+        const elW = activeTool === 'text' ? 200 : Math.max(width, 50)
+        const elH = activeTool === 'text' ? 40 : Math.max(height, 50)
+
+        // Auto-parent to the frame whose bounds contain the new element's centre,
+        // so drawn elements stay clipped inside the frame just like dragged ones do.
+        let parentFrame: CanvasElement | null = null
+        if (activeTool !== 'frame') {
+          const cx = x + elW / 2
+          const cy = y + elH / 2
+          const frames = elements.filter(el => el.type === 'frame' && el.visible !== false)
+          frames.forEach(f => {
+            if (cx >= f.x && cx <= f.x + f.width && cy >= f.y && cy <= f.y + f.height) {
+              parentFrame = f
+            }
+          })
+        }
+
         const newElement: CanvasElement = {
           id: generateId(),
           type: activeTool === 'frame' ? 'frame' : activeTool as CanvasElement['type'],
-          x,
-          y,
-          width: activeTool === 'text' ? 200 : Math.max(width, 50),
-          height: activeTool === 'text' ? 40 : Math.max(height, 50),
+          x: parentFrame ? x - (parentFrame as CanvasElement).x : x,
+          y: parentFrame ? y - (parentFrame as CanvasElement).y : y,
+          width: elW,
+          height: elH,
           rotation: 0,
           fill: activeTool === 'frame' ? 'transparent' : activeColor,
           stroke: activeStroke,
@@ -344,8 +367,9 @@ export function DesignCanvas() {
           visible: true,
           locked: false,
           clipContent: activeTool === 'frame' ? true : undefined,
+          parentId: parentFrame ? (parentFrame as CanvasElement).id : undefined,
         }
-        
+
         addElement(newElement)
         selectElement(newElement.id)
         pushHistory()
@@ -435,22 +459,9 @@ export function DesignCanvas() {
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', (e) => {
-      if (e.key === 'Alt') setAltPressed(false)
-    })
-    
-    // Specifically handle Alt key down as well
-    const handleAltDown = (e: KeyboardEvent) => {
-      if (e.key === 'Alt') {
-        setAltPressed(true)
-      }
-    }
-    window.addEventListener('keydown', handleAltDown)
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keydown', handleAltDown)
-      window.removeEventListener('keyup', (e) => { if (e.key === 'Alt') setAltPressed(false) })
     }
   }, [selectedIds, deselectAll])
 
@@ -983,7 +994,8 @@ export function DesignCanvas() {
       >
         {/* Render only top-level elements, children will be rendered recursively */}
         {elements.filter(el => !el.parentId).map(renderElement)}
-        
+
+
         {/* Drawing preview */}
         {isDrawing && (
           <div
@@ -998,6 +1010,44 @@ export function DesignCanvas() {
           />
         )}
       </div>
+
+      {/* Smart Guides while dragging — nearest element in each direction */}
+      {isDragging && selectedIds.length === 1 && (() => {
+        const selEl = elements.find(el => el.id === selectedIds[0])
+        if (!selEl) return null
+        const elementMap = new Map(elements.map(el => [el.id, el]))
+        const sA = getElementAbsolutePos(selEl, elementMap)
+        const sel = {
+          x: sA.x * zoom + panOffset.x,
+          y: sA.y * zoom + panOffset.y,
+          w: selEl.width * zoom,
+          h: selEl.height * zoom,
+        }
+        const others = elements
+          .filter(el => !selectedIds.includes(el.id) && el.visible !== false)
+          .map(el => {
+            const abs = getElementAbsolutePos(el, elementMap)
+            return { x: abs.x * zoom + panOffset.x, y: abs.y * zoom + panOffset.y, w: el.width * zoom, h: el.height * zoom }
+          })
+        return <SmartGuides sel={sel} others={others} zoom={zoom} />
+      })()}
+
+      {/* Distance Guide Overlay — rendered in canvas-container space so the SVG has real dimensions */}
+      {!isDragging && selectedIds.length === 1 && hoveredId && hoveredId !== selectedIds[0] && (() => {
+        const selEl = elements.find(el => el.id === selectedIds[0])
+        const hovEl = elements.find(el => el.id === hoveredId)
+        if (!selEl || !hovEl) return null
+        const elementMap = new Map(elements.map(el => [el.id, el]))
+        const sA = getElementAbsolutePos(selEl, elementMap)
+        const hA = getElementAbsolutePos(hovEl, elementMap)
+        return (
+          <DistanceGuide
+            sel={{ x: sA.x * zoom + panOffset.x, y: sA.y * zoom + panOffset.y, w: selEl.width * zoom, h: selEl.height * zoom }}
+            hov={{ x: hA.x * zoom + panOffset.x, y: hA.y * zoom + panOffset.y, w: hovEl.width * zoom, h: hovEl.height * zoom }}
+            zoom={zoom}
+          />
+        )
+      })()}
 
       {/* Zoom indicator */}
       <div className="absolute bottom-4 left-4 bg-panel-bg/90 backdrop-blur-sm rounded-lg px-3 py-1.5 text-xs text-muted-foreground">
@@ -1045,34 +1095,197 @@ function ConstraintIndicators({ element }: { element: CanvasElement }) {
   )
 }
 
-function DistanceOverlay({ from, to }: { from: CanvasElement, to: CanvasElement }) {
-  // Simple calculation for top/bottom/left/right distances
-  const distances = {
-    top: Math.abs(from.y - to.y),
-    bottom: Math.abs((from.y + from.height) - (to.y + to.height)),
-    left: Math.abs(from.x - to.x),
-    right: Math.abs((from.x + from.width) - (to.x + to.width))
+type Rect = { x: number; y: number; w: number; h: number }
+
+function DistanceGuide({ sel, hov, zoom }: { sel: Rect; hov: Rect; zoom: number }) {
+  const RED = '#FF4444'
+  const guides: React.ReactNode[] = []
+
+  const label = (value: number, lx: number, ly: number, key: string) => (
+    <g key={key}>
+      <rect x={lx - 16} y={ly - 8} width={32} height={16} rx={3} fill={RED} />
+      <text x={lx} y={ly + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight="bold">
+        {Math.round(value / zoom)}
+      </text>
+    </g>
+  )
+
+  // Vertical overlap range — used to position horizontal gap lines
+  const overlapTop    = Math.max(sel.y, hov.y)
+  const overlapBottom = Math.min(sel.y + sel.h, hov.y + hov.h)
+  const hasVOverlap   = overlapBottom > overlapTop
+  const midY = hasVOverlap ? (overlapTop + overlapBottom) / 2 : (sel.y + sel.h / 2)
+
+  // Horizontal overlap range — used to position vertical gap lines
+  const overlapLeft  = Math.max(sel.x, hov.x)
+  const overlapRight = Math.min(sel.x + sel.w, hov.x + hov.w)
+  const hasHOverlap  = overlapRight > overlapLeft
+  const midX = hasHOverlap ? (overlapLeft + overlapRight) / 2 : (sel.x + sel.w / 2)
+
+  // Right gap: sel right → hov left
+  const rightGap = hov.x - (sel.x + sel.w)
+  if (rightGap > 0) {
+    const x1 = sel.x + sel.w, x2 = hov.x
+    guides.push(
+      <g key="right">
+        <line x1={x1} y1={midY} x2={x2} y2={midY} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={x1} y1={midY - 6} x2={x1} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        <line x1={x2} y1={midY - 6} x2={x2} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        {label(rightGap, (x1 + x2) / 2, midY, 'right-lbl')}
+      </g>
+    )
   }
 
-  // Find the closest edges and show distances
-  const showHorizontal = from.y < to.y + to.height && from.y + from.height > to.y
-  const showVertical = from.x < to.x + to.width && from.x + from.width > to.x
-  
+  // Left gap: hov right → sel left
+  const leftGap = sel.x - (hov.x + hov.w)
+  if (leftGap > 0) {
+    const x1 = hov.x + hov.w, x2 = sel.x
+    guides.push(
+      <g key="left">
+        <line x1={x1} y1={midY} x2={x2} y2={midY} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={x1} y1={midY - 6} x2={x1} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        <line x1={x2} y1={midY - 6} x2={x2} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        {label(leftGap, (x1 + x2) / 2, midY, 'left-lbl')}
+      </g>
+    )
+  }
+
+  // Bottom gap: sel bottom → hov top
+  const bottomGap = hov.y - (sel.y + sel.h)
+  if (bottomGap > 0) {
+    const y1 = sel.y + sel.h, y2 = hov.y
+    guides.push(
+      <g key="bottom">
+        <line x1={midX} y1={y1} x2={midX} y2={y2} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={midX - 6} y1={y1} x2={midX + 6} y2={y1} stroke={RED} strokeWidth={1} />
+        <line x1={midX - 6} y1={y2} x2={midX + 6} y2={y2} stroke={RED} strokeWidth={1} />
+        {label(bottomGap, midX, (y1 + y2) / 2, 'bottom-lbl')}
+      </g>
+    )
+  }
+
+  // Top gap: hov bottom → sel top
+  const topGap = sel.y - (hov.y + hov.h)
+  if (topGap > 0) {
+    const y1 = hov.y + hov.h, y2 = sel.y
+    guides.push(
+      <g key="top">
+        <line x1={midX} y1={y1} x2={midX} y2={y2} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={midX - 6} y1={y1} x2={midX + 6} y2={y1} stroke={RED} strokeWidth={1} />
+        <line x1={midX - 6} y1={y2} x2={midX + 6} y2={y2} stroke={RED} strokeWidth={1} />
+        {label(topGap, midX, (y1 + y2) / 2, 'top-lbl')}
+      </g>
+    )
+  }
+
+  if (guides.length === 0) return null
+
   return (
-    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}>
-      {/* Visual lines and labels would go here */}
-      {/* For MVP, let's just show a few red lines between centers/edges */}
-      <line 
-        x1={from.x + from.width / 2} y1={from.y + from.height / 2} 
-        x2={to.x + to.width / 2} y2={to.y + to.height / 2} 
-        stroke="#FF4444" strokeWidth="1" strokeDasharray="4 2" 
-      />
-      <text 
-        x={(from.x + to.x) / 2 + 10} y={(from.y + to.y) / 2} 
-        fill="#FF4444" fontSize="10" fontWeight="bold"
-      >
-        {Math.round(Math.sqrt(Math.pow(from.x - to.x, 2) + Math.pow(from.y - to.y, 2)))}px
+    <svg
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 50 }}
+      overflow="visible"
+    >
+      {guides}
+    </svg>
+  )
+}
+
+function SmartGuides({ sel, others, zoom }: { sel: Rect; others: Rect[]; zoom: number }) {
+  const RED = '#FF4444'
+  const guides: React.ReactNode[] = []
+
+  let minRight = Infinity, minLeft = Infinity, minBottom = Infinity, minTop = Infinity
+  let rightEl: Rect | null = null, leftEl: Rect | null = null
+  let bottomEl: Rect | null = null, topEl: Rect | null = null
+
+  others.forEach(hov => {
+    const rightGap = hov.x - (sel.x + sel.w)
+    const leftGap  = sel.x - (hov.x + hov.w)
+    const bottomGap = hov.y - (sel.y + sel.h)
+    const topGap    = sel.y - (hov.y + hov.h)
+    if (rightGap  > 0 && rightGap  < minRight)  { minRight  = rightGap;  rightEl  = hov }
+    if (leftGap   > 0 && leftGap   < minLeft)   { minLeft   = leftGap;   leftEl   = hov }
+    if (bottomGap > 0 && bottomGap < minBottom) { minBottom = bottomGap; bottomEl = hov }
+    if (topGap    > 0 && topGap    < minTop)    { minTop    = topGap;    topEl    = hov }
+  })
+
+  const label = (value: number, lx: number, ly: number, key: string) => (
+    <g key={key}>
+      <rect x={lx - 16} y={ly - 8} width={32} height={16} rx={3} fill={RED} />
+      <text x={lx} y={ly + 4} textAnchor="middle" fill="white" fontSize={10} fontWeight="bold">
+        {Math.round(value / zoom)}
       </text>
+    </g>
+  )
+
+  if (rightEl) {
+    const hov = rightEl as Rect
+    const vOT = Math.max(sel.y, hov.y), vOB = Math.min(sel.y + sel.h, hov.y + hov.h)
+    const midY = vOB > vOT ? (vOT + vOB) / 2 : sel.y + sel.h / 2
+    const x1 = sel.x + sel.w, x2 = hov.x
+    guides.push(
+      <g key="right">
+        <line x1={x1} y1={midY} x2={x2} y2={midY} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={x1} y1={midY - 6} x2={x1} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        <line x1={x2} y1={midY - 6} x2={x2} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        {label(minRight, (x1 + x2) / 2, midY, 'r-lbl')}
+      </g>
+    )
+  }
+
+  if (leftEl) {
+    const hov = leftEl as Rect
+    const vOT = Math.max(sel.y, hov.y), vOB = Math.min(sel.y + sel.h, hov.y + hov.h)
+    const midY = vOB > vOT ? (vOT + vOB) / 2 : sel.y + sel.h / 2
+    const x1 = hov.x + hov.w, x2 = sel.x
+    guides.push(
+      <g key="left">
+        <line x1={x1} y1={midY} x2={x2} y2={midY} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={x1} y1={midY - 6} x2={x1} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        <line x1={x2} y1={midY - 6} x2={x2} y2={midY + 6} stroke={RED} strokeWidth={1} />
+        {label(minLeft, (x1 + x2) / 2, midY, 'l-lbl')}
+      </g>
+    )
+  }
+
+  if (bottomEl) {
+    const hov = bottomEl as Rect
+    const hOL = Math.max(sel.x, hov.x), hOR = Math.min(sel.x + sel.w, hov.x + hov.w)
+    const midX = hOR > hOL ? (hOL + hOR) / 2 : sel.x + sel.w / 2
+    const y1 = sel.y + sel.h, y2 = hov.y
+    guides.push(
+      <g key="bottom">
+        <line x1={midX} y1={y1} x2={midX} y2={y2} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={midX - 6} y1={y1} x2={midX + 6} y2={y1} stroke={RED} strokeWidth={1} />
+        <line x1={midX - 6} y1={y2} x2={midX + 6} y2={y2} stroke={RED} strokeWidth={1} />
+        {label(minBottom, midX, (y1 + y2) / 2, 'b-lbl')}
+      </g>
+    )
+  }
+
+  if (topEl) {
+    const hov = topEl as Rect
+    const hOL = Math.max(sel.x, hov.x), hOR = Math.min(sel.x + sel.w, hov.x + hov.w)
+    const midX = hOR > hOL ? (hOL + hOR) / 2 : sel.x + sel.w / 2
+    const y1 = hov.y + hov.h, y2 = sel.y
+    guides.push(
+      <g key="top">
+        <line x1={midX} y1={y1} x2={midX} y2={y2} stroke={RED} strokeWidth={1} strokeDasharray="4 2" />
+        <line x1={midX - 6} y1={y1} x2={midX + 6} y2={y1} stroke={RED} strokeWidth={1} />
+        <line x1={midX - 6} y1={y2} x2={midX + 6} y2={y2} stroke={RED} strokeWidth={1} />
+        {label(minTop, midX, (y1 + y2) / 2, 't-lbl')}
+      </g>
+    )
+  }
+
+  if (guides.length === 0) return null
+
+  return (
+    <svg
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 50 }}
+      overflow="visible"
+    >
+      {guides}
     </svg>
   )
 }

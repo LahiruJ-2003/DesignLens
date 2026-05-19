@@ -21,6 +21,9 @@ import {
   Layers,
   GripVertical,
   ChevronUp,
+  Triangle,
+  Star,
+  ArrowUpRight,
 } from 'lucide-react'
 import {
   Collapsible,
@@ -35,6 +38,9 @@ const iconMap: Record<string, React.ReactNode> = {
   line: <Minus className="h-3.5 w-3.5" />,
   frame: <Frame className="h-3.5 w-3.5" />,
   image: <ImageIcon className="h-3.5 w-3.5" />,
+  triangle: <Triangle className="h-3.5 w-3.5" />,
+  star: <Star className="h-3.5 w-3.5" />,
+  arrow: <ArrowUpRight className="h-3.5 w-3.5" />,
 }
 
 export function LayersPanel() {

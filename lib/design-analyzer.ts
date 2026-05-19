@@ -105,9 +105,41 @@ export function getColorHarmony(colors: string[]): string {
   return 'mixed'
 }
 
-// This is our main local heuristic analyzer. 
-// Before sending to the AI model, it checks for basic, mathematically provable design flaws 
-// like bad contrast, overlapping elements, and tiny fonts.
+// Returns true if outer's bounding box fully contains inner's bounding box.
+// Used to skip overlap warnings for intentional containment (text in button, icon in card, etc.)
+function elementContains(outer: CanvasElement, inner: CanvasElement): boolean {
+  return (
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    outer.x + outer.width  >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height
+  )
+}
+
+// Find the actual background color behind a text element by looking for the
+// topmost element whose bounding box contains the text element's position.
+function getBackgroundBehind(textEl: CanvasElement, allElements: CanvasElement[]): string {
+  const cx = textEl.x + textEl.width / 2
+  const cy = textEl.y + textEl.height / 2
+  const candidates = allElements.filter(
+    (el) =>
+      el.id !== textEl.id &&
+      el.fill &&
+      el.x <= cx &&
+      el.y <= cy &&
+      el.x + el.width  >= cx &&
+      el.y + el.height >= cy
+  )
+  // Last in array = visually on top (highest z-index), so use that as background
+  return candidates.length > 0
+    ? (candidates[candidates.length - 1].fill ?? '#ffffff')
+    : '#ffffff'
+}
+
+// Element types that can realistically be interactive touch targets.
+// Text, lines, arrows, and decorative shapes don't need 44px tap areas.
+const INTERACTIVE_TYPES = new Set(['rectangle', 'circle', 'frame', 'triangle', 'star'])
+
 export function analyzeDesign(
   elements: CanvasElement[],
   config: AnalysisConfig = defaultConfig
@@ -117,25 +149,21 @@ export function analyzeDesign(
 
   const generateId = () => `issue-${++issueId}`
 
-  // skip hidden stuff
   const visibleElements = elements.filter((el) => el.visible !== false)
 
   if (visibleElements.length === 0) {
     return issues
   }
 
-  // 1. contrast check
+  // 1. Contrast — check text against its actual background, not always white
   if (config.checkContrast) {
     visibleElements.forEach((el) => {
       if (el.type === 'text' && el.fill) {
-        // check text against backgrounds
-        const textColor = el.fill
-        const assumedBg = '#ffffff' // Assume white background for simplicity
-        const ratio = getContrastRatio(textColor, assumedBg)
-        
+        const bgColor = getBackgroundBehind(el, visibleElements)
+        const ratio = getContrastRatio(el.fill, bgColor)
         const isLargeText = el.fontSize && el.fontSize >= 18
         const minRatio = isLargeText ? CONTRAST_RATIO_AA_LARGE : CONTRAST_RATIO_AA_NORMAL
-        
+
         if (ratio < minRatio) {
           issues.push({
             id: generateId(),
@@ -148,8 +176,8 @@ export function analyzeDesign(
           })
         }
       }
-      
-      // check if things are basically invisible
+
+      // Fill vs stroke contrast (only meaningful when stroke is visible)
       if (el.fill && el.stroke && el.strokeWidth > 0) {
         const ratio = getContrastRatio(el.fill, el.stroke)
         if (ratio < 1.5) {
@@ -167,18 +195,23 @@ export function analyzeDesign(
     })
   }
 
-  // 2. spacing stuff
+  // 2. Overlap — skip when one element is fully inside another (text in button,
+  //    label in card, icon in container). Only flag genuinely unintended overlaps
+  //    between sibling elements at the same level.
   if (config.checkSpacing) {
-    // check if things are on top of each other
     visibleElements.forEach((el1, i) => {
       visibleElements.slice(i + 1).forEach((el2) => {
-        if (elementsOverlap(el1, el2)) {
+        if (
+          elementsOverlap(el1, el2) &&
+          !elementContains(el1, el2) &&
+          !elementContains(el2, el1)
+        ) {
           issues.push({
             id: generateId(),
             type: 'spacing',
             severity: 'warning',
             message: `"${el1.name}" and "${el2.name}" are overlapping`,
-            suggestion: 'Overlapping elements may cause visual confusion. Consider adjusting positions or using layering intentionally.',
+            suggestion: 'These elements overlap without one containing the other. Check if this is intentional or adjust their positions.',
             elementIds: [el1.id, el2.id],
             position: { x: el1.x, y: el1.y },
           })
@@ -186,53 +219,69 @@ export function analyzeDesign(
       })
     })
 
-    // check wobbly spacing
-    const sortedByX = [...visibleElements].sort((a, b) => a.x - b.x)
+    // Exclude elements fully contained within another (text inside cards, labels inside buttons)
+    // — their positions create phantom gaps that don't reflect real layout spacing
+    const topLevelVisible = visibleElements.filter(
+      el => !visibleElements.some(other => other.id !== el.id && elementContains(other, el))
+    )
+
+    // Horizontal spacing consistency
+    const sortedByX = [...topLevelVisible].sort((a, b) => a.x - b.x)
     const horizontalGaps: number[] = []
-    
     for (let i = 1; i < sortedByX.length; i++) {
       const gap = sortedByX[i].x - (sortedByX[i - 1].x + sortedByX[i - 1].width)
-      if (gap > 0 && gap < 200) {
-        horizontalGaps.push(gap)
-      }
+      if (gap > 0 && gap < 200) horizontalGaps.push(gap)
     }
-    
     if (horizontalGaps.length >= 2) {
-      const avgGap = horizontalGaps.reduce((a, b) => a + b, 0) / horizontalGaps.length
-      const inconsistent = horizontalGaps.some((g) => Math.abs(g - avgGap) > 10)
-      
-      if (inconsistent) {
+      const avgH = horizontalGaps.reduce((a, b) => a + b, 0) / horizontalGaps.length
+      if (horizontalGaps.some((g) => Math.abs(g - avgH) > 12)) {
         issues.push({
           id: generateId(),
           type: 'spacing',
           severity: 'info',
           message: 'Inconsistent horizontal spacing detected',
-          suggestion: `Consider using consistent spacing (e.g., ${Math.round(avgGap)}px) between elements for visual harmony.`,
-          elementIds: visibleElements.map((e) => e.id),
+          suggestion: `Consider using consistent spacing (e.g., ${Math.round(avgH)}px) between elements.`,
+          elementIds: topLevelVisible.map((e) => e.id),
+        })
+      }
+    }
+
+    // Vertical spacing consistency — catches stacked layouts with uneven gaps
+    const sortedByY = [...topLevelVisible].sort((a, b) => a.y - b.y)
+    const verticalGaps: number[] = []
+    for (let i = 1; i < sortedByY.length; i++) {
+      const gap = sortedByY[i].y - (sortedByY[i - 1].y + sortedByY[i - 1].height)
+      if (gap > 0 && gap < 200) verticalGaps.push(gap)
+    }
+    if (verticalGaps.length >= 2) {
+      const avgV = verticalGaps.reduce((a, b) => a + b, 0) / verticalGaps.length
+      if (verticalGaps.some((g) => Math.abs(g - avgV) > 12)) {
+        issues.push({
+          id: generateId(),
+          type: 'spacing',
+          severity: 'info',
+          message: 'Inconsistent vertical spacing detected',
+          suggestion: `Consider using consistent vertical gaps (e.g., ${Math.round(avgV)}px) between elements.`,
+          elementIds: topLevelVisible.map((e) => e.id),
         })
       }
     }
   }
 
-  // 3. alignment
+  // 3. Alignment near-miss — tightened to 2px so only very obvious off-by-one
+  //    mistakes are flagged, not normal design variance
   if (config.checkAlignment) {
-    // check things that are slightly off
     const xPositions = visibleElements.map((el) => el.x)
-    const yPositions = visibleElements.map((el) => el.y)
-    const rightEdges = visibleElements.map((el) => el.x + el.width)
-    const bottomEdges = visibleElements.map((el) => el.y + el.height)
-    
-    // near miss left aligns
     xPositions.forEach((x1, i) => {
       xPositions.slice(i + 1).forEach((x2, j) => {
         const diff = Math.abs(x1 - x2)
-        if (diff > 0 && diff <= 5) {
+        if (diff > 0 && diff <= 2) {
           issues.push({
             id: generateId(),
             type: 'alignment',
             severity: 'info',
             message: `"${visibleElements[i].name}" and "${visibleElements[i + j + 1].name}" are almost aligned`,
-            suggestion: `Elements are ${diff}px apart. Consider aligning them exactly for a cleaner look.`,
+            suggestion: `Left edges are ${diff}px apart. Align them exactly for a cleaner look.`,
             elementIds: [visibleElements[i].id, visibleElements[i + j + 1].id],
           })
         }
@@ -240,12 +289,12 @@ export function analyzeDesign(
     })
   }
 
-  // 4. text stuff
+  // 4. Typography — raise font-size count limit to 5 (heading/subheading/body/caption/label
+  //    is a normal UI scale and should not be flagged)
   if (config.checkTypography) {
     const textElements = visibleElements.filter((el) => el.type === 'text')
-    
+
     textElements.forEach((el) => {
-      // check if text is too tiny
       if (el.fontSize && el.fontSize < MIN_READABLE_FONT_SIZE) {
         issues.push({
           id: generateId(),
@@ -268,32 +317,32 @@ export function analyzeDesign(
         })
       }
     })
-    
-    // complain if there are too many sizes
+
     const fontSizes = [...new Set(textElements.map((el) => el.fontSize).filter(Boolean))]
-    if (fontSizes.length > 4) {
+    if (fontSizes.length > 5) {
       issues.push({
         id: generateId(),
         type: 'typography',
         severity: 'info',
         message: 'Too many font sizes used',
-        suggestion: `You're using ${fontSizes.length} different font sizes. Consider limiting to 3-4 sizes for better hierarchy.`,
+        suggestion: `You're using ${fontSizes.length} different font sizes. Consider limiting to 4-5 sizes for a clear visual hierarchy.`,
         elementIds: textElements.map((e) => e.id),
       })
     }
   }
 
-  // 5. a11y stuff
+  // 5. Touch targets — only flag interactive element types (rectangles, circles, frames).
+  //    Text labels, lines, arrows, and decorative shapes are excluded.
   if (config.checkAccessibility) {
     visibleElements.forEach((el) => {
-      // check tap size
+      if (!INTERACTIVE_TYPES.has(el.type)) return
       if (el.width < MIN_TOUCH_TARGET || el.height < MIN_TOUCH_TARGET) {
         issues.push({
           id: generateId(),
           type: 'accessibility',
           severity: el.width < 30 || el.height < 30 ? 'error' : 'warning',
           message: `"${el.name}" may be too small for touch`,
-          suggestion: `Size is ${Math.round(el.width)}x${Math.round(el.height)}px. Minimum touch target should be ${MIN_TOUCH_TARGET}x${MIN_TOUCH_TARGET}px.`,
+          suggestion: `Size is ${Math.round(el.width)}x${Math.round(el.height)}px. Interactive elements should be at least ${MIN_TOUCH_TARGET}x${MIN_TOUCH_TARGET}px.`,
           elementIds: [el.id],
           position: { x: el.x, y: el.y },
         })
@@ -301,29 +350,18 @@ export function analyzeDesign(
     })
   }
 
-  // 6. Color Harmony Analysis
+  // 6. Color — flag excessive palette size (>7) but drop the "mixed harmony" noise.
+  //    Real UI designs naturally use a primary + neutral + semantic palette which
+  //    always reads as "mixed" and should not be penalised.
   if (config.checkColorHarmony) {
     const colors = [...new Set(visibleElements.map((el) => el.fill).filter(Boolean))]
-    
-    if (colors.length > 5) {
+    if (colors.length > 7) {
       issues.push({
         id: generateId(),
         type: 'color',
         severity: 'warning',
         message: 'Too many colors in use',
-        suggestion: `You're using ${colors.length} different colors. Consider limiting to 3-5 colors for visual cohesion.`,
-        elementIds: visibleElements.map((e) => e.id),
-      })
-    }
-    
-    const harmony = getColorHarmony(colors)
-    if (harmony === 'mixed' && colors.length > 2) {
-      issues.push({
-        id: generateId(),
-        type: 'color',
-        severity: 'info',
-        message: 'Consider using a color harmony',
-        suggestion: 'Try using complementary, analogous, or triadic colors for a more cohesive palette.',
+        suggestion: `You're using ${colors.length} different colors. Consider limiting to 5-7 colors for visual cohesion.`,
         elementIds: visibleElements.map((e) => e.id),
       })
     }
@@ -377,25 +415,87 @@ export function generateIssueSummary(issues: UIIssue[]): string {
   return `Found ${parts.join(', ')}.`
 }
 
+// Resolve every element's position to absolute canvas coordinates by walking
+// up the parent chain. Child elements store frame-relative x/y, so all
+// geometry checks (overlap, alignment, backend filtering) must use this.
+export function resolveToAbsolute(elements: CanvasElement[]): CanvasElement[] {
+  const map = new Map(elements.map((el) => [el.id, el]))
+
+  function absPos(el: CanvasElement): { x: number; y: number } {
+    if (!el.parentId) return { x: el.x, y: el.y }
+    const parent = map.get(el.parentId)
+    if (!parent) return { x: el.x, y: el.y }
+    const p = absPos(parent)
+    return { x: el.x + p.x, y: el.y + p.y }
+  }
+
+  return elements.map((el) => {
+    const { x, y } = absPos(el)
+    return { ...el, x, y }
+  })
+}
+
 // This function handles the connection to our Python FastAPI backend
 // It sends the canvas elements over to be processed by the Vision-Graph Transformer (ViGT) model
 export async function analyzeDesignWithAI(elements: CanvasElement[]) {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
-  
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8001";
+
+  // Resolve all elements to absolute canvas coordinates first so frame-parented
+  // children (which store frame-relative x/y) are handled correctly.
+  const absElements = resolveToAbsolute(elements)
+
+  // Find the largest frame on the canvas — treat it as the primary screen.
+  const frames = absElements.filter((el) => el.type === 'frame' && el.visible !== false)
+  const primaryFrame = frames.length > 0
+    ? frames.reduce((best, f) => (f.width * f.height > best.width * best.height ? f : best))
+    : null
+
+  let frameWidth = 390
+  let frameHeight = 844
+  let payload: CanvasElement[]
+
+  if (primaryFrame) {
+    frameWidth  = primaryFrame.width
+    frameHeight = primaryFrame.height
+
+    // Keep elements whose absolute centre falls inside the primary frame,
+    // then convert to frame-relative coords (required by backend preprocessing).
+    payload = absElements
+      .filter((el) => {
+        if (el.id === primaryFrame.id || el.visible === false) return false
+        const cx = el.x + el.width  / 2
+        const cy = el.y + el.height / 2
+        return (
+          cx >= primaryFrame.x &&
+          cx <= primaryFrame.x + frameWidth &&
+          cy >= primaryFrame.y &&
+          cy <= primaryFrame.y + frameHeight
+        )
+      })
+      .map((el) => ({
+        ...el,
+        x: el.x - primaryFrame.x,
+        y: el.y - primaryFrame.y,
+      }))
+  } else {
+    // No frame — send all visible elements with default mobile dimensions
+    payload = absElements.filter((el) => el.visible !== false)
+  }
+
   try {
     const res = await fetch(`${backendUrl}/api/analyze-ui`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ elements }),
-    });
-    
+      body: JSON.stringify({ elements: payload, frame_width: frameWidth, frame_height: frameHeight }),
+    })
+
     if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
+      throw new Error(`HTTP error! status: ${res.status}`)
     }
-    
-    return await res.json();
+
+    return await res.json()
   } catch (error) {
-    console.error("AI Backend is unreachable. Ensure the FastAPI server is running on port 8000.", error);
-    return null;
+    console.error("AI Backend is unreachable. Ensure the FastAPI server is running on port 8001.", error)
+    return null
   }
 }

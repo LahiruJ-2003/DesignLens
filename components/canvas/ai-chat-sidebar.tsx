@@ -9,9 +9,9 @@ import { useCanvasStore } from "@/lib/canvas-store";
 import {
   analyzeDesign,
   analyzeDesignWithAI,
-  calculateDesignScore,
   generateIssueSummary,
 } from "@/lib/design-analyzer";
+import { computeFinalScore } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +53,7 @@ export function AIChatSidebar() {
     showIssueHighlights,
     toggleIssueHighlights,
     setMlScore,
+    selectElement,
   } = useCanvasStore();
 
   // Use a ref to always get the latest elements
@@ -82,7 +83,7 @@ export function AIChatSidebar() {
     ];
 
     const currentIssues = analyzeDesign(currentElements);
-    const score = currentMlScore !== null ? Math.round(currentMlScore) : 0;
+    const scored = computeFinalScore(currentMlScore, currentIssues);
     const summary = generateIssueSummary(currentIssues);
 
     return `Design Overview:
@@ -93,7 +94,9 @@ export function AIChatSidebar() {
 - Colors Used: ${colors.join(", ") || "None"}
 - Font Sizes: ${fontSizes.join("px, ")}${fontSizes.length ? "px" : "None"}
 
-Current Analysis Score: ${score}/100
+Current Analysis Score: ${scored.finalScore}/100 (${scored.label})
+- AI spatial layout score: ${scored.breakdown.spatialScore}/100
+- Issue penalties applied: −${scored.breakdown.penaltyDeducted} pts (${scored.breakdown.errorCount} errors, ${scored.breakdown.warningCount} warnings, ${scored.breakdown.infoCount} suggestions)
 ${summary}
 
 ${
@@ -152,7 +155,7 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
   const generateLocalAnalysis = () => {
     const currentElements = elementsRef.current;
     const currentIssues = analyzeDesign(currentElements);
-    const score = calculateDesignScore(currentIssues);
+    const scored = computeFinalScore(null, currentIssues);
     const summary = generateIssueSummary(currentIssues);
 
     if (currentElements.length === 0) {
@@ -160,7 +163,7 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
     }
 
     let response = `**Local Analysis** (Gemini rate limited - waiting to retry)\n\n`;
-    response += `**Design Score: ${score}/100**\n${summary}\n\n`;
+    response += `**Design Score: ${scored.finalScore}/100 (${scored.label})**\n${summary}\n\n`;
 
     if (currentIssues.length > 0) {
       response += `**Issues Found (${currentIssues.length}):**\n`;
@@ -383,12 +386,17 @@ ${currentElements.length > 10 ? `... and ${currentElements.length - 10} more ele
               {issues.map((issue) => (
                 <div
                   key={issue.id}
+                  onClick={() => {
+                    if (issue.elementIds?.[0]) selectElement(issue.elementIds[0])
+                  }}
                   className={cn(
                     "flex items-start gap-2 p-2 rounded-md text-[11px] leading-tight transition-colors",
+                    issue.elementIds?.[0] && "cursor-pointer hover:brightness-110",
                     issue.severity === "error" && "bg-destructive/10 border border-destructive/20",
                     issue.severity === "warning" && "bg-yellow-500/10 border border-yellow-500/20",
                     issue.severity === "info" && "bg-blue-500/10 border border-blue-500/20"
                   )}
+                  title={issue.elementIds?.[0] ? "Click to select element" : undefined}
                 >
                   <div className="mt-0.5 shrink-0">
                     {getSeverityIcon(issue.severity)}
