@@ -1,5 +1,14 @@
 'use client'
 
+// The Properties Panel on the right side lets the user edit the selected element's properties.
+// It shows different sections depending on context:
+//   - No selection + Frame tool active: shows Frame Presets (iPhone, iPad, desktop sizes)
+//   - No selection + other tool: shows default fill/stroke colour pickers
+//   - One element selected: shows position, size, constraints, appearance, effects, and text settings
+//   - Multiple elements selected: shows alignment and distribute tools at the top
+// The X/Y/W/H inputs use a "local state" pattern — changes are held locally and only pushed
+// to the store on blur or Enter, so the element doesn't jump while the user is mid-typing.
+
 import { useState, useEffect } from 'react'
 import { useCanvasStore } from '@/lib/canvas-store'
 import { Input } from '@/components/ui/input'
@@ -72,10 +81,11 @@ export function PropertiesPanel() {
     tidyUpElements,
   } = useCanvasStore()
 
-  // Helper for math expressions in inputs
+  // Allow users to type simple math like "100+20" or "200/2" directly in dimension inputs.
+  // We sanitise the input first to only allow numbers and basic operators — no arbitrary code.
+  // eval() is intentional here; the regex guard makes it safe for this controlled use case.
   const evaluateMath = (input: string, defaultValue: number): number => {
     try {
-      // Basic sanitization: only allow numbers and + - * / ( ) .
       if (!/^[0-9+\-*/().\s]+$/.test(input)) return defaultValue
       // eslint-disable-next-line no-eval
       const result = eval(input)
@@ -89,8 +99,10 @@ export function PropertiesPanel() {
     ? elements.find((el) => el.id === selectedIds[0])
     : null
 
-  // Deferred position/size state — only pushed to the store on blur or Enter,
-  // so the element doesn't jump while you're mid-typing.
+  // Local copies of position/size that update as the user types.
+  // We only call updateElement (which triggers a re-render and re-analysis) when
+  // the user finishes typing (blur) or presses Enter. Without this, every keystroke
+  // would move the element on screen, making it impossible to type a multi-digit value.
   const [localX, setLocalX] = useState('')
   const [localY, setLocalY] = useState('')
   const [localW, setLocalW] = useState('')
@@ -125,8 +137,10 @@ export function PropertiesPanel() {
     }
   }
 
+  // Create a frame at a sensible position in the current viewport.
+  // We use the panOffset and zoom to work out where the centre of the screen is in canvas space
+  // so the new frame appears near where the user is looking, not at the origin (0,0).
   const createPresetFrame = (device: { name: string; width: number; height: number }) => {
-    // Place the new frame near the current viewport centre
     const x = Math.round(Math.max(0, (300 - panOffset.x) / zoom))
     const y = Math.round(Math.max(0, (100 - panOffset.y) / zoom))
     addElement({

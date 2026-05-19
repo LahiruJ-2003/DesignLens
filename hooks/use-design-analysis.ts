@@ -1,5 +1,10 @@
 'use client'
 
+// This React hook is the bridge between the canvas and the analysis engine.
+// It watches for changes to the canvas elements and automatically triggers
+// both the local heuristic checks and the AI backend analysis.
+// It uses a debounce so it doesn't spam the backend while the user is actively dragging.
+
 import { useEffect, useCallback, useRef } from 'react'
 import { useCanvasStore } from '@/lib/canvas-store'
 import { analyzeDesign, analyzeDesignWithAI, resolveToAbsolute, generateIssueSummary } from '@/lib/design-analyzer'
@@ -14,27 +19,33 @@ interface UseDesignAnalysisOptions {
 
 export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
   const { debounceMs = 1000, autoAnalyze = true } = options
-  
+
   const { elements, setIssues, isAnalyzing, setIsAnalyzing, issues, mlScore, setMlScore } = useCanvasStore()
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // We store a hash of the last analysed state so we don't re-run the model
+  // if the element list changed in a way that doesn't affect the score
+  // (e.g. a text cursor moved but no position or color changed).
   const lastElementsRef = useRef<string>('')
 
   const runAnalysis = useCallback(async () => {
     setIsAnalyzing(true)
 
-    // Resolve all element positions to absolute canvas coords before any analysis.
-    // Child elements (parented to a frame) store frame-relative x/y — without this
-    // step the overlap/alignment checks and backend filter all produce wrong results.
+    // Elements parented to a frame store frame-relative x/y coordinates.
+    // We must convert everything to absolute canvas coordinates before analysing,
+    // otherwise the overlap checks, alignment checks, and backend filtering all get wrong results.
     const absElements = resolveToAbsolute(elements)
 
-    // Ping Python PyTorch Backend
+    // Send elements to the Python ViGT backend for the AI spatial score.
+    // If the backend is offline, analyzeDesignWithAI returns null and we fall back to local-only mode.
     const aiResponse = await analyzeDesignWithAI(elements)
     if (aiResponse) {
+      // Backend responded — merge AI issues (from backend) with local heuristic issues
       const localIssues = analyzeDesign(absElements)
       setIssues([...(aiResponse.issues || []), ...localIssues])
       setMlScore(aiResponse.overall_score)
     } else {
-      // Backend unreachable — local heuristics only, start from 100
+      // Backend unreachable — run local heuristics only, score starts from 100
       const detectedIssues = analyzeDesign(absElements)
       setIssues(detectedIssues)
       setMlScore(null)
@@ -43,7 +54,8 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     setIsAnalyzing(false)
   }, [elements, setIssues, setIsAnalyzing, setMlScore])
 
-  // Reset score immediately when canvas is emptied — don't wait for debounce
+  // If the user clears the entire canvas, reset the score immediately.
+  // Without this, the old score would linger until the debounce fires.
   useEffect(() => {
     if (elements.length === 0) {
       setIssues([])
@@ -51,11 +63,12 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     }
   }, [elements.length, setIssues, setMlScore])
 
-  // Debounced auto-analysis when elements change
+  // Watch for element changes and schedule an analysis after the debounce delay.
+  // We build a quick hash of the geometry/color/type fields — if nothing changed
+  // (e.g. just selection state changed) we skip the analysis to avoid unnecessary API calls.
   useEffect(() => {
     if (!autoAnalyze) return
-    
-    // Create a simple hash of elements to detect real changes
+
     const elementsHash = JSON.stringify(
       elements.map((e) => ({
         id: e.id,
@@ -70,19 +83,18 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
         visible: e.visible,
       }))
     )
-    
-    // Only run if elements actually changed
+
     if (elementsHash === lastElementsRef.current) return
     lastElementsRef.current = elementsHash
-    
-    // Clear existing timeout
+
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
     }
-    
-    // Set new debounced analysis
+
+    // Wait for the user to stop editing before running the analysis.
+    // This avoids hammering the backend while shapes are being dragged.
     timeoutRef.current = setTimeout(runAnalysis, debounceMs)
-    
+
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
@@ -90,6 +102,7 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     }
   }, [elements, debounceMs, autoAnalyze, runAnalysis])
 
+  // Combine the AI score and local penalties into a single scored result
   const scored: ScoredResult = computeFinalScore(mlScore, issues)
   const summary = generateIssueSummary(issues)
 

@@ -1,5 +1,15 @@
 'use client'
 
+// This is the main canvas component — the largest and most complex file in the frontend.
+// It handles:
+//   - Mouse events for drawing, dragging, resizing, and panning
+//   - Rendering every element (rectangles, circles, text, images, etc.) as SVG or HTML
+//   - Keyboard shortcuts (Delete, Ctrl+Z, V/R/T/F etc.)
+//   - Smart Guides (gap labels shown while dragging)
+//   - Distance Guide (gap measurements shown while hovering)
+//   - Automatic reparenting when an element is dragged into or out of a frame
+//   - Automatic parenting when a new element is drawn inside a frame
+
 import React from "react"
 
 import { useRef, useState, useEffect, useCallback } from 'react'
@@ -54,6 +64,9 @@ export function DesignCanvas() {
     setEditingTextId,
   } = useCanvasStore()
 
+  // Convert a mouse event's screen coordinates into canvas coordinates.
+  // We first subtract the canvas container's position (rect), then subtract the pan offset,
+  // then divide by zoom so that 1 unit always equals 1 pixel at 100% zoom.
   const getCanvasCoords = useCallback((e: React.MouseEvent) => {
     if (!canvasRef.current) return { x: 0, y: 0 }
     const rect = canvasRef.current.getBoundingClientRect()
@@ -63,16 +76,21 @@ export function DesignCanvas() {
     }
   }, [zoom, panOffset])
 
+  // Walk up the parent chain to find the absolute canvas position of any element.
+  // Child elements store positions relative to their parent frame (e.g. x=10 means 10px from the frame's left edge).
+  // We need the absolute position to do hit testing (did the user click on this element?),
+  // to draw guides, and to reparent correctly on drop.
+  // Passing an elementMap is faster (O(1) lookup) than searching the array each time.
   const getElementAbsolutePos = useCallback((el: CanvasElement, elementMap?: Map<string, CanvasElement>) => {
     let x = el.x
     let y = el.y
     let currentParentId = el.parentId
-    
+
     while (currentParentId) {
-      const parent = elementMap 
+      const parent = elementMap
         ? elementMap.get(currentParentId)
         : elements.find(p => p.id === currentParentId)
-        
+
       if (parent) {
         x += parent.x
         y += parent.y
@@ -110,6 +128,8 @@ export function DesignCanvas() {
           selectElement(clickedElement.id, e.shiftKey)
         }
         setIsDragging(true)
+        // Record how far from the element's top-left corner the user clicked.
+        // Without this offset, the element would "jump" to centre on the cursor when dragged.
         const abs = getElementAbsolutePos(clickedElement)
         setDragOffset({
           x: coords.x - abs.x,
@@ -161,8 +181,9 @@ export function DesignCanvas() {
         const dx = coords.x - dragOffset.x - absPos.x
         const dy = coords.y - dragOffset.y - absPos.y
         
-        // If multiple elements are selected, move them all
-        // Only move elements that are not children of another selected element
+        // When multiple elements are selected, move them all by the same delta.
+        // We only move "roots" of the selection — elements whose parent is not also selected.
+        // Without this check, a frame AND its child would both move, doubling the child's displacement.
         const selectedRoots = selectedIds.filter(id => {
           const el = elements.find(e => e.id === id)
           if (!el || !el.parentId) return true
@@ -230,7 +251,10 @@ export function DesignCanvas() {
     if (isDragging) {
       setIsDragging(false)
       
-      // Interactive Reparenting on drop
+      // On mouse-up after a drag, check if the element was dropped inside a frame.
+      // If it was, reparent it so it becomes a child of that frame.
+      // We use the element's absolute centre to decide which frame it "belongs to",
+      // and we convert the absolute position to frame-relative before saving.
       if (selectedIds.length > 0) {
         const elementMap = new Map(elements.map(el => [el.id, el]))
         const lastSelectedId = selectedIds[selectedIds.length - 1]
@@ -331,8 +355,9 @@ export function DesignCanvas() {
         const elW = activeTool === 'text' ? 200 : Math.max(width, 50)
         const elH = activeTool === 'text' ? 40 : Math.max(height, 50)
 
-        // Auto-parent to the frame whose bounds contain the new element's centre,
-        // so drawn elements stay clipped inside the frame just like dragged ones do.
+        // If the new element's centre is inside a frame, automatically make it a child of that frame.
+        // This mirrors the behaviour in Figma where drawing inside a frame auto-nests the new shape.
+        // We skip this for frames themselves — a frame inside a frame is too complex to auto-handle here.
         let parentFrame: CanvasElement | null = null
         if (activeTool !== 'frame') {
           const cx = x + elW / 2
@@ -385,7 +410,9 @@ export function DesignCanvas() {
     setResizeHandle(handle)
   }
 
-  // Keyboard shortcuts
+  // Register global keyboard shortcuts.
+  // We skip all shortcuts when the user is typing in a text input so that
+  // pressing 'T' to add a text element doesn't interfere with typing.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
@@ -1097,6 +1124,11 @@ function ConstraintIndicators({ element }: { element: CanvasElement }) {
 
 type Rect = { x: number; y: number; w: number; h: number }
 
+// Shows the pixel gap between the selected element and a hovered element.
+// Appears on hover (no drag). We draw dashed red lines with a label pill for each
+// visible gap (right, left, top, bottom). The overlap range is used to position
+// the line along the shared edge so it doesn't float in empty space.
+// All coordinates are already in screen (container) space — no extra transform needed.
 function DistanceGuide({ sel, hov, zoom }: { sel: Rect; hov: Rect; zoom: number }) {
   const RED = '#FF4444'
   const guides: React.ReactNode[] = []
@@ -1190,6 +1222,10 @@ function DistanceGuide({ sel, hov, zoom }: { sel: Rect; hov: Rect; zoom: number 
   )
 }
 
+// Shows gap labels while dragging, like Figma's spacing guides.
+// For each of the 4 directions we find the nearest element (minimum positive gap)
+// and draw a single guide line to it. This gives a live readout of how far the
+// dragged element is from its neighbours in each direction.
 function SmartGuides({ sel, others, zoom }: { sel: Rect; others: Rect[]; zoom: number }) {
   const RED = '#FF4444'
   const guides: React.ReactNode[] = []

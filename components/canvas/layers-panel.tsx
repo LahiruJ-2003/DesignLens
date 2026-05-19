@@ -1,5 +1,10 @@
 'use client'
 
+// The Layers Panel shows every canvas element as a list, similar to Figma's layers panel.
+// It supports drag-and-drop reordering and reparenting (drag into a frame to nest it).
+// Double-clicking a layer name lets you rename it.
+// The tree is rendered recursively so frames can be expanded to show their children.
+
 import React, { useState, useRef } from "react"
 import { useCanvasStore } from '@/lib/canvas-store'
 import { cn } from '@/lib/utils'
@@ -99,7 +104,10 @@ export function LayersPanel() {
     setExpandedParents(newExpanded)
   }
 
-  // Drag and drop handlers for parent-child relationships
+  // Drag-and-drop reordering in the layers panel.
+  // When you drag a layer onto the top/bottom half of another layer, it reorders them.
+  // When you drag onto the middle of a frame layer, it nests inside the frame.
+  // We track dragOverElementId and dropPosition to show the visual insertion indicator.
   const handleDragStart = (e: React.DragEvent, elementId: string) => {
     setDraggedElementId(elementId)
     e.dataTransfer.effectAllowed = 'move'
@@ -172,7 +180,9 @@ export function LayersPanel() {
     setDropPosition(null)
   }
 
-  // Render layer tree recursively
+  // Build the layer list recursively so frames show their children indented beneath them.
+  // depth controls the left margin (each level adds 12px) to create a visual tree.
+  // We only render layers that have a matching element — orphan layer entries are skipped.
   const renderLayerTree = (parentId: string | undefined = undefined, depth: number = 0) => {
     const layerElements = parentId 
       ? getChildElements(parentId).filter((el) => layers.some((l) => l.elementId === el.id))

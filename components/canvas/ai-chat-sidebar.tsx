@@ -1,5 +1,13 @@
 "use client";
 
+// The AI Chat Sidebar lets the user ask questions about their design and get back
+// AI-powered feedback powered by Gemini (via the /api/chat route).
+// When the user clicks "Analyze Design", we first call the Python ViGT backend for the
+// spatial score, then merge those issues with local heuristics, then send a detailed
+// design summary to Gemini so it can give specific, context-aware advice.
+// If Gemini is rate-limited (HTTP 429), we fall back to a local analysis response
+// so the user still gets useful feedback even when the AI quota is exhausted.
+
 import React from "react"
 
 import { useState, useRef, useEffect } from "react";
