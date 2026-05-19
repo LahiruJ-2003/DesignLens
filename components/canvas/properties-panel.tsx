@@ -1,22 +1,53 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useCanvasStore } from '@/lib/canvas-store'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
-import { 
-  Trash2, Copy, Lock, Unlock, Eye, EyeOff, 
+import {
+  Trash2, Copy, Lock, Unlock, Eye, EyeOff,
   AlignLeft, AlignCenter, AlignRight,
-  AlignStartVertical as AlignTop, 
-  AlignCenterVertical as AlignMiddle, 
+  AlignStartVertical as AlignTop,
+  AlignCenterVertical as AlignMiddle,
   AlignEndVertical as AlignBottom,
   StretchHorizontal as DistributeHorizontal,
   StretchVertical as DistributeVertical,
-  Plus, X, Type, Layers, Wand2
+  Type, Wand2,
+  Link2, Underline, Strikethrough, ArrowLeftRight, ArrowUpDown,
 } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+const FRAME_PRESETS = [
+  {
+    category: 'Mobile',
+    devices: [
+      { name: 'iPhone SE',          width: 375,  height: 667  },
+      { name: 'iPhone 14',          width: 390,  height: 844  },
+      { name: 'iPhone 14 Pro Max',  width: 430,  height: 932  },
+      { name: 'Android (small)',    width: 360,  height: 640  },
+      { name: 'Android (large)',    width: 412,  height: 915  },
+    ],
+  },
+  {
+    category: 'Tablet',
+    devices: [
+      { name: 'iPad Mini',          width: 768,  height: 1024 },
+      { name: 'iPad Pro 11"',       width: 834,  height: 1194 },
+      { name: 'iPad Pro 12.9"',     width: 1024, height: 1366 },
+    ],
+  },
+  {
+    category: 'Desktop',
+    devices: [
+      { name: 'MacBook 13"',        width: 1280, height: 800  },
+      { name: 'Desktop HD',         width: 1440, height: 900  },
+      { name: 'Full HD',            width: 1920, height: 1080 },
+    ],
+  },
+]
 
 export function PropertiesPanel() {
   const {
@@ -25,9 +56,14 @@ export function PropertiesPanel() {
     activeColor,
     activeStroke,
     activeStrokeWidth,
+    activeTool,
+    panOffset,
+    zoom,
     setActiveColor,
     setActiveStroke,
     setActiveStrokeWidth,
+    setActiveTool,
+    addElement,
     updateElement,
     deleteElement,
     duplicateElement,
@@ -53,7 +89,109 @@ export function PropertiesPanel() {
     ? elements.find((el) => el.id === selectedIds[0])
     : null
 
+  // Deferred position/size state — only pushed to the store on blur or Enter,
+  // so the element doesn't jump while you're mid-typing.
+  const [localX, setLocalX] = useState('')
+  const [localY, setLocalY] = useState('')
+  const [localW, setLocalW] = useState('')
+  const [localH, setLocalH] = useState('')
+  const [aspectLocked, setAspectLocked] = useState(false)
+
+  useEffect(() => {
+    if (!selectedElement) return
+    setLocalX(String(Math.round(selectedElement.x ?? 0)))
+    setLocalY(String(Math.round(selectedElement.y ?? 0)))
+    setLocalW(String(Math.round(selectedElement.width ?? 100)))
+    setLocalH(String(Math.round(selectedElement.height ?? 100)))
+  }, [
+    selectedElement?.id,
+    selectedElement?.x,
+    selectedElement?.y,
+    selectedElement?.width,
+    selectedElement?.height,
+  ])
+
+  const commitDimension = (field: 'x' | 'y' | 'width' | 'height', raw: string) => {
+    if (!selectedElement) return
+    const val = evaluateMath(raw, (selectedElement[field] as number) ?? 0)
+    if (field === 'width' && aspectLocked && selectedElement.width && selectedElement.height) {
+      const newH = Math.round(val * (selectedElement.height / selectedElement.width))
+      updateElement(selectedElement.id, { width: val, height: newH })
+    } else if (field === 'height' && aspectLocked && selectedElement.width && selectedElement.height) {
+      const newW = Math.round(val * (selectedElement.width / selectedElement.height))
+      updateElement(selectedElement.id, { height: val, width: newW })
+    } else {
+      updateElement(selectedElement.id, { [field]: val })
+    }
+  }
+
+  const createPresetFrame = (device: { name: string; width: number; height: number }) => {
+    // Place the new frame near the current viewport centre
+    const x = Math.round(Math.max(0, (300 - panOffset.x) / zoom))
+    const y = Math.round(Math.max(0, (100 - panOffset.y) / zoom))
+    addElement({
+      id: Math.random().toString(36).substring(2, 15),
+      type: 'frame',
+      name: device.name,
+      x,
+      y,
+      width: device.width,
+      height: device.height,
+      rotation: 0,
+      fill: '#ffffff',
+      stroke: '#e2e8f0',
+      strokeWidth: 1,
+      opacity: 1,
+      clipContent: true,
+      layoutMode: 'none',
+    })
+    setActiveTool('select')
+  }
+
   if (!selectedElement) {
+    if (activeTool === 'frame') {
+      return (
+        <div className="w-64 bg-panel-bg border-l border-border flex flex-col overflow-hidden h-full">
+          <div className="p-4 border-b border-border">
+            <h3 className="text-sm font-semibold text-foreground">Frame Presets</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Click a preset or drag on the canvas to draw freely.
+            </p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            {FRAME_PRESETS.map((group) => (
+              <div key={group.category}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                    {group.category}
+                  </span>
+                  {group.category === 'Mobile' && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
+                      Best for AI scoring
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-0.5">
+                  {group.devices.map((device) => (
+                    <button
+                      key={device.name}
+                      className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-muted/60 text-left transition-colors"
+                      onClick={() => createPresetFrame(device)}
+                    >
+                      <span className="text-xs text-foreground">{device.name}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
+                        {device.width} × {device.height}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="w-64 bg-panel-bg border-l border-border p-4 overflow-y-auto">
         <h3 className="text-sm font-semibold text-foreground mb-4">Properties</h3>
@@ -119,8 +257,8 @@ export function PropertiesPanel() {
   return (
     <div className="w-64 h-full bg-panel-bg border-l border-border p-4 flex flex-col">
       <div className="flex-1 overflow-y-auto scrollbar-transparent pr-1">
-      {/* Alignment & Distribution */}
-      <div className="flex items-center justify-between mb-4 bg-muted/20 p-1.5 rounded-lg border border-border/50">
+      {/* Alignment & Distribution — only meaningful with 2+ elements */}
+      {selectedIds.length >= 2 && <div className="flex items-center justify-between mb-4 bg-muted/20 p-1.5 rounded-lg border border-border/50">
         <div className="flex items-center gap-0.5">
           <Button variant="ghost" size="xs" className="h-7 w-7 p-0" onClick={() => alignElements('left')} title="Align left">
             <AlignLeft className="h-3.5 w-3.5" />
@@ -153,7 +291,7 @@ export function PropertiesPanel() {
             <Wand2 className="h-3.5 w-3.5" />
           </Button>
         </div>
-      </div>
+      </div>}
 
       <Separator className="mb-4" />
 
@@ -209,48 +347,67 @@ export function PropertiesPanel() {
       <div className="space-y-3 mb-4">
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-medium text-muted-foreground">Position & Size</h4>
-          {selectedElement.type === 'frame' && (
-            <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => updateElement(selectedElement.id, { clipContent: !selectedElement.clipContent })}>
-              <span className="text-[10px] text-muted-foreground">Clip content</span>
-              <input 
-                type="checkbox" 
-                checked={selectedElement.clipContent ?? true} 
-                onChange={() => {}} // Handled by onClick for better UX
-                className="w-3 h-3 rounded border-border"
-              />
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {selectedElement.type === 'frame' && (
+              <div className="flex items-center gap-1.5 cursor-pointer" onClick={() => updateElement(selectedElement.id, { clipContent: !selectedElement.clipContent })}>
+                <span className="text-[10px] text-muted-foreground">Clip</span>
+                <input
+                  type="checkbox"
+                  checked={selectedElement.clipContent ?? true}
+                  onChange={() => {}}
+                  className="w-3 h-3 rounded border-border"
+                />
+              </div>
+            )}
+            <Button
+              variant={aspectLocked ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setAspectLocked(!aspectLocked)}
+              title={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+            >
+              <Link2 className={`h-3 w-3 ${!aspectLocked ? 'opacity-30' : ''}`} />
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs">X</Label>
             <Input
-              value={selectedElement.x ?? 0}
-              onChange={(e) => updateElement(selectedElement.id, { x: evaluateMath(e.target.value, selectedElement.x ?? 0) })}
+              value={localX}
+              onChange={(e) => setLocalX(e.target.value)}
+              onBlur={() => commitDimension('x', localX)}
+              onKeyDown={(e) => e.key === 'Enter' && commitDimension('x', localX)}
               className="h-8 text-xs"
             />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Y</Label>
             <Input
-              value={selectedElement.y ?? 0}
-              onChange={(e) => updateElement(selectedElement.id, { y: evaluateMath(e.target.value, selectedElement.y ?? 0) })}
+              value={localY}
+              onChange={(e) => setLocalY(e.target.value)}
+              onBlur={() => commitDimension('y', localY)}
+              onKeyDown={(e) => e.key === 'Enter' && commitDimension('y', localY)}
               className="h-8 text-xs"
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Width</Label>
+            <Label className="text-xs">W</Label>
             <Input
-              value={selectedElement.width ?? 100}
-              onChange={(e) => updateElement(selectedElement.id, { width: evaluateMath(e.target.value, selectedElement.width ?? 100) })}
+              value={localW}
+              onChange={(e) => setLocalW(e.target.value)}
+              onBlur={() => commitDimension('width', localW)}
+              onKeyDown={(e) => e.key === 'Enter' && commitDimension('width', localW)}
               className="h-8 text-xs"
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Height</Label>
+            <Label className="text-xs">H</Label>
             <Input
-              value={selectedElement.height ?? 100}
-              onChange={(e) => updateElement(selectedElement.id, { height: evaluateMath(e.target.value, selectedElement.height ?? 100) })}
+              value={localH}
+              onChange={(e) => setLocalH(e.target.value)}
+              onBlur={() => commitDimension('height', localH)}
+              onKeyDown={(e) => e.key === 'Enter' && commitDimension('height', localH)}
               className="h-8 text-xs"
             />
           </div>
@@ -327,6 +484,65 @@ export function PropertiesPanel() {
       </div>
 
       <Separator className="mb-4" />
+
+      {/* Auto Layout — frames only */}
+      {selectedElement.type === 'frame' && (
+        <>
+          <div className="space-y-3 mb-4">
+            <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Auto Layout</Label>
+            <div className="flex gap-1">
+              {(['none', 'horizontal', 'vertical'] as const).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={(selectedElement.layoutMode ?? 'none') === mode ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="flex-1 h-7 text-[10px] gap-1 px-1"
+                  onClick={() => updateElement(selectedElement.id, { layoutMode: mode })}
+                >
+                  {mode === 'none' && 'None'}
+                  {mode === 'horizontal' && <><ArrowLeftRight className="h-3 w-3" />H</>}
+                  {mode === 'vertical' && <><ArrowUpDown className="h-3 w-3" />V</>}
+                </Button>
+              ))}
+            </div>
+
+            {selectedElement.layoutMode && selectedElement.layoutMode !== 'none' && (
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] text-muted-foreground">Gap</Label>
+                    <span className="text-[10px] font-mono">{selectedElement.itemSpacing ?? 0}px</span>
+                  </div>
+                  <Slider
+                    value={[selectedElement.itemSpacing ?? 0]}
+                    onValueChange={([val]) => updateElement(selectedElement.id, { itemSpacing: val })}
+                    min={0} max={100} step={1}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Padding</Label>
+                  <div className="grid grid-cols-2 gap-1">
+                    {(['top', 'right', 'bottom', 'left'] as const).map((side) => (
+                      <div key={side} className="space-y-0.5">
+                        <Label className="text-[9px] text-muted-foreground capitalize">{side}</Label>
+                        <Input
+                          type="number"
+                          value={selectedElement.padding?.[side] ?? 0}
+                          onChange={(e) => updateElement(selectedElement.id, {
+                            padding: { top: 0, right: 0, bottom: 0, left: 0, ...selectedElement.padding, [side]: Number(e.target.value) },
+                          })}
+                          className="h-6 text-[10px] px-1"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <Separator className="mb-4" />
+        </>
+      )}
 
       {/* Appearance */}
       <div className="space-y-3 mb-4">
@@ -915,6 +1131,40 @@ export function PropertiesPanel() {
                   title="Align right"
                 >
                   <AlignRight className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Text Decoration */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Decoration</Label>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant={(!selectedElement.textDecoration || selectedElement.textDecoration === 'none') ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 h-8"
+                  onClick={() => updateElement(selectedElement.id, { textDecoration: 'none' })}
+                  title="No decoration"
+                >
+                  <Type className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant={selectedElement.textDecoration === 'underline' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 h-8"
+                  onClick={() => updateElement(selectedElement.id, { textDecoration: 'underline' })}
+                  title="Underline"
+                >
+                  <Underline className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant={selectedElement.textDecoration === 'line-through' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 h-8"
+                  onClick={() => updateElement(selectedElement.id, { textDecoration: 'line-through' })}
+                  title="Strikethrough"
+                >
+                  <Strikethrough className="h-3 w-3" />
                 </Button>
               </div>
             </div>

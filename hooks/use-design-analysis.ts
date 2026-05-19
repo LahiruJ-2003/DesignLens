@@ -2,7 +2,9 @@
 
 import { useEffect, useCallback, useRef } from 'react'
 import { useCanvasStore } from '@/lib/canvas-store'
-import { analyzeDesign, analyzeDesignWithAI, calculateDesignScore, generateIssueSummary } from '@/lib/design-analyzer'
+import { analyzeDesign, analyzeDesignWithAI, resolveToAbsolute, generateIssueSummary } from '@/lib/design-analyzer'
+import { computeFinalScore } from '@/lib/scoring'
+import type { ScoredResult } from '@/lib/scoring'
 
 
 interface UseDesignAnalysisOptions {
@@ -19,23 +21,35 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
 
   const runAnalysis = useCallback(async () => {
     setIsAnalyzing(true)
-    
+
+    // Resolve all element positions to absolute canvas coords before any analysis.
+    // Child elements (parented to a frame) store frame-relative x/y — without this
+    // step the overlap/alignment checks and backend filter all produce wrong results.
+    const absElements = resolveToAbsolute(elements)
+
     // Ping Python PyTorch Backend
     const aiResponse = await analyzeDesignWithAI(elements)
     if (aiResponse) {
-      // Merge local spatial heuristic issues with ML model output
-      const localIssues = analyzeDesign(elements)
+      const localIssues = analyzeDesign(absElements)
       setIssues([...(aiResponse.issues || []), ...localIssues])
       setMlScore(aiResponse.overall_score)
     } else {
-      // Fallback
-      const detectedIssues = analyzeDesign(elements)
+      // Backend unreachable — local heuristics only, start from 100
+      const detectedIssues = analyzeDesign(absElements)
       setIssues(detectedIssues)
       setMlScore(null)
     }
-    
+
     setIsAnalyzing(false)
   }, [elements, setIssues, setIsAnalyzing, setMlScore])
+
+  // Reset score immediately when canvas is emptied — don't wait for debounce
+  useEffect(() => {
+    if (elements.length === 0) {
+      setIssues([])
+      setMlScore(null)
+    }
+  }, [elements.length, setIssues, setMlScore])
 
   // Debounced auto-analysis when elements change
   useEffect(() => {
@@ -76,17 +90,20 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     }
   }, [elements, debounceMs, autoAnalyze, runAnalysis])
 
-  const score = mlScore !== null ? Math.round(mlScore) : 0
+  const scored: ScoredResult = computeFinalScore(mlScore, issues)
   const summary = generateIssueSummary(issues)
 
   return {
     issues,
-    score,
+    score: scored.finalScore,
+    label: scored.label,
+    colour: scored.colour,
+    breakdown: scored.breakdown,
     summary,
     runAnalysis,
     isAnalyzing,
-    errorCount: issues.filter((i) => i.severity === 'error').length,
-    warningCount: issues.filter((i) => i.severity === 'warning').length,
-    infoCount: issues.filter((i) => i.severity === 'info').length,
+    errorCount: scored.breakdown.errorCount,
+    warningCount: scored.breakdown.warningCount,
+    infoCount: scored.breakdown.infoCount,
   }
 }

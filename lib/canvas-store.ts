@@ -1,3 +1,5 @@
+// This is the global "brain" of the frontend using Zustand.
+// It stores all the canvas elements, layers, history (undo/redo), and handles syncing projects.
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CanvasElement, Layer, ToolType, UIIssue, ChatMessage, DesignProject } from './types'
@@ -111,6 +113,8 @@ interface CanvasState {
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
+// Zustand store definition. We use the 'persist' middleware so your canvas doesn't 
+// disappear if you accidentally refresh the page (saves to localStorage).
 export const useCanvasStore = create<CanvasState>()(
   persist(
     (set, get) => ({
@@ -252,11 +256,24 @@ export const useCanvasStore = create<CanvasState>()(
       deleteElement: (id) => {
         const state = get()
         state.pushHistory()
-        
+
+        // Collect the element and all its descendants so deleting a frame
+        // also removes every child element it contains.
+        const toDelete = new Set<string>([id])
+        const collectChildren = (parentId: string) => {
+          state.elements
+            .filter((el) => el.parentId === parentId)
+            .forEach((child) => {
+              toDelete.add(child.id)
+              collectChildren(child.id)
+            })
+        }
+        collectChildren(id)
+
         set((state) => ({
-          elements: state.elements.filter((el) => el.id !== id),
-          layers: state.layers.filter((l) => l.elementId !== id),
-          selectedIds: state.selectedIds.filter((sid) => sid !== id),
+          elements: state.elements.filter((el) => !toDelete.has(el.id)),
+          layers: state.layers.filter((l) => !toDelete.has(l.elementId)),
+          selectedIds: state.selectedIds.filter((sid) => !toDelete.has(sid)),
         }))
       },
       
@@ -854,6 +871,9 @@ export const useCanvasStore = create<CanvasState>()(
       name: 'designlens-storage',
       partialize: (state) => ({
         projects: state.projects,
+        currentProject: state.currentProject,
+        elements: state.elements,
+        layers: state.layers,
         showGrid: state.showGrid,
         showRulers: state.showRulers,
         showIssueHighlights: state.showIssueHighlights,

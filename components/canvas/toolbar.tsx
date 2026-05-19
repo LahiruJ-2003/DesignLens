@@ -207,8 +207,6 @@
 
 import React from "react"
 import Image from 'next/image'
-import { useRouter } from 'next/navigation'
-
 import { useCanvasStore } from '@/lib/canvas-store'
 import type { ToolType } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -269,8 +267,7 @@ const otherTools: { type: ToolType; icon: React.ReactNode; label: string; shortc
 ]
 
 export function Toolbar() {
-  const router = useRouter()
-  const { 
+  const {
     activeTool, 
     setActiveTool, 
     zoom, 
@@ -296,7 +293,7 @@ export function Toolbar() {
     window.location.href = '/'
   }
 
-  const isShapeActive = activeTool === 'rectangle' || activeTool === 'circle'
+  const isShapeActive = shapeTools.some((t) => t.type === activeTool)
   const activeShape = shapeTools.find(t => t.type === activeTool) || shapeTools[0]
 
   const isSelectionActive = activeTool === 'select' || activeTool === 'hand'
