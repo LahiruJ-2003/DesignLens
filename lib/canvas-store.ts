@@ -1,5 +1,8 @@
-// This is the global "brain" of the frontend using Zustand.
-// It stores all the canvas elements, layers, history (undo/redo), and handles syncing projects.
+// This is the global state store for the entire canvas application, built with Zustand.
+// Every component that needs to read or change canvas data (elements, selection, zoom, layers, etc.)
+// goes through this store instead of passing props up and down the component tree.
+// The 'persist' middleware automatically saves the state to localStorage so your work
+// survives a page refresh.
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CanvasElement, Layer, ToolType, UIIssue, ChatMessage, DesignProject } from './types'
@@ -113,8 +116,9 @@ interface CanvasState {
 
 const generateId = () => Math.random().toString(36).substring(2, 15)
 
-// Zustand store definition. We use the 'persist' middleware so your canvas doesn't 
-// disappear if you accidentally refresh the page (saves to localStorage).
+// 'partialize' controls which parts of the state get saved to localStorage.
+// We exclude zoom, panOffset, selection, and analysis results because those
+// are session-specific and should reset when you open the app again.
 export const useCanvasStore = create<CanvasState>()(
   persist(
     (set, get) => ({
@@ -148,6 +152,9 @@ export const useCanvasStore = create<CanvasState>()(
       setActiveStrokeWidth: (width) => set({ activeStrokeWidth: width }),
       
       // Element actions
+      // When a new element is added, we also create a matching layer entry for the layers panel.
+      // autoSelectTool switches back to the select tool after drawing, which is the expected
+      // behaviour (draw one shape, then immediately be able to drag it).
       addElement: (element, autoSelectTool = true) => {
         const state = get()
         state.pushHistory()
@@ -530,7 +537,9 @@ export const useCanvasStore = create<CanvasState>()(
         })
       },
       
-      // History actions
+      // Undo/redo work by keeping a list of snapshots and an index pointer.
+      // Undo moves the index back one step and restores that snapshot.
+      // Redo moves forward. If you make a new change after undoing, the redo stack is wiped.
       undo: () => {
         const state = get()
         if (state.historyIndex > 0) {
@@ -630,7 +639,9 @@ export const useCanvasStore = create<CanvasState>()(
         return allChildren
       },
       
-      // Set element's parent (or remove parent if null)
+      // Move an element into (or out of) a frame.
+      // When parenting, we convert the element's absolute canvas coordinates to frame-relative ones.
+      // When un-parenting, we do the reverse so the element stays in the same visual position.
       setElementParent: (elementId, parentId) => {
         const state = get()
         const element = state.elements.find(el => el.id === elementId)
@@ -718,7 +729,9 @@ export const useCanvasStore = create<CanvasState>()(
         })
       },
 
-      // Advanced Layout Actions
+      // Align selected elements to a common edge or centre line.
+      // If only one element is selected, we align it relative to its parent frame (or the canvas).
+      // If multiple elements are selected, we align them all to the selection's bounding box.
       alignElements: (type) => {
         const state = get()
         const selectedElements = state.elements.filter((el) => state.selectedIds.includes(el.id))
@@ -777,10 +790,7 @@ export const useCanvasStore = create<CanvasState>()(
         if (type === 'horizontal') {
           const first = selectedElements[0]
           const last = selectedElements[selectedElements.length - 1]
-          const totalWidth = last.x - (first.x + first.width)
-          const elementsWidth = selectedElements.slice(1, -1).reduce((acc, el) => acc + el.width, 0)
-          const totalGap = (last.x) - (first.x + first.width)
-          // Simplified distribute: equal gaps
+          // Divide the total span evenly between all elements so gaps are equal
           const totalElementsWidth = selectedElements.reduce((sum, el) => sum + el.width, 0)
           const range = (last.x + last.width) - first.x
           const gap = (range - totalElementsWidth) / (selectedElements.length - 1)

@@ -1,19 +1,23 @@
+// This file contains all the local heuristic checks that run in the browser.
+// It does NOT call the AI backend — that's handled by design-analyzer.ts's analyzeDesignWithAI function.
+// These checks look for common design mistakes: bad contrast, overlapping elements,
+// misaligned items, tiny text, and too many colours.
 import type { CanvasElement, UIIssue } from './types'
 
-// WCAG (Web Content Accessibility Guidelines) contrast requirements
-// We use these to make sure text is actually readable against its background
+// WCAG (Web Content Accessibility Guidelines) defines these minimum contrast ratios.
+// AA is the standard requirement — most real apps aim for AA compliance.
+// Large text (18px+) has a lower threshold because it's easier to read at lower contrast.
 const CONTRAST_RATIO_AA_NORMAL = 4.5
 const CONTRAST_RATIO_AA_LARGE = 3
-const CONTRAST_RATIO_AAA_NORMAL = 7
-const CONTRAST_RATIO_AAA_LARGE = 4.5
 
-// Minimum size for buttons/interactive elements (Apple/Google standard is usually 44-48px)
+// Apple and Google both recommend 44-48px as the minimum tap target size.
+// Smaller buttons are hard to press accurately on a phone touchscreen.
 const MIN_TOUCH_TARGET = 44
 
-// Basic typography rules to prevent unreadable text or super long lines
+// 14px is the smallest size considered comfortable for body text on most screens.
+// Below 12px is basically unreadable without zooming in.
 const MIN_BODY_FONT_SIZE = 14
 const MIN_READABLE_FONT_SIZE = 12
-const MAX_LINE_LENGTH = 75 // characters
 
 export interface AnalysisConfig {
   checkContrast: boolean
@@ -33,7 +37,8 @@ const defaultConfig: AnalysisConfig = {
   checkColorHarmony: true,
 }
 
-// color helpers
+// Convert a hex colour like "#3b82f6" to separate R, G, B numbers (0–255).
+// This is needed because the WCAG luminance formula works in linear RGB, not hex strings.
 export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
   return result
@@ -75,7 +80,10 @@ export function isLightColor(color: string): boolean {
   return luminance > 0.5
 }
 
-// Get color harmony type
+// Detect whether a set of colours follow a known harmony rule (complementary, analogous, etc.).
+// We convert each hex colour to a hue angle (0–360°) and compare the angles.
+// This function is exported but not currently used in the main analyzeDesign pass —
+// it's available for future use if we want to reward good colour choices.
 export function getColorHarmony(colors: string[]): string {
   if (colors.length < 2) return 'none'
   // Simplified harmony detection
@@ -105,8 +113,9 @@ export function getColorHarmony(colors: string[]): string {
   return 'mixed'
 }
 
-// Returns true if outer's bounding box fully contains inner's bounding box.
-// Used to skip overlap warnings for intentional containment (text in button, icon in card, etc.)
+// Returns true if the outer element's bounding box fully contains the inner element.
+// We use this to avoid false positives — text inside a button and icons inside a card
+// are intentional containment, not accidental overlaps.
 function elementContains(outer: CanvasElement, inner: CanvasElement): boolean {
   return (
     outer.x <= inner.x &&
@@ -116,8 +125,11 @@ function elementContains(outer: CanvasElement, inner: CanvasElement): boolean {
   )
 }
 
-// Find the actual background color behind a text element by looking for the
-// topmost element whose bounding box contains the text element's position.
+// Find the real background colour behind a text element so the contrast check is accurate.
+// Without this, we'd always compare text against white, which misses the case where
+// dark text sits on a dark card and the contrast is actually terrible.
+// We find every element whose bounding box covers the text's centre point,
+// then take the last one (highest z-order = visually on top).
 function getBackgroundBehind(textEl: CanvasElement, allElements: CanvasElement[]): string {
   const cx = textEl.x + textEl.width / 2
   const cy = textEl.y + textEl.height / 2
@@ -136,8 +148,9 @@ function getBackgroundBehind(textEl: CanvasElement, allElements: CanvasElement[]
     : '#ffffff'
 }
 
-// Element types that can realistically be interactive touch targets.
-// Text, lines, arrows, and decorative shapes don't need 44px tap areas.
+// Only check tap target size for element types that a user might actually tap.
+// Text labels, lines, and decorative arrows are not buttons, so flagging them as
+// "too small for touch" would produce a lot of noise and mislead the user.
 const INTERACTIVE_TYPES = new Set(['rectangle', 'circle', 'frame', 'triangle', 'star'])
 
 export function analyzeDesign(
@@ -155,7 +168,8 @@ export function analyzeDesign(
     return issues
   }
 
-  // 1. Contrast — check text against its actual background, not always white
+  // 1. CONTRAST — compare each text element against the actual background behind it.
+  //    A ratio below 4.5:1 (or 3:1 for large text) fails WCAG AA accessibility standards.
   if (config.checkContrast) {
     visibleElements.forEach((el) => {
       if (el.type === 'text' && el.fill) {
@@ -195,9 +209,12 @@ export function analyzeDesign(
     })
   }
 
-  // 2. Overlap — skip when one element is fully inside another (text in button,
-  //    label in card, icon in container). Only flag genuinely unintended overlaps
-  //    between sibling elements at the same level.
+  // 2. OVERLAP & SPACING — flag elements that overlap unexpectedly.
+  //    We skip cases where one element is fully inside another (text in a button,
+  //    icon in a card) because those are intentional. Only sibling-level overlaps are flagged.
+  //    We also check if horizontal/vertical gaps between top-level elements are inconsistent.
+  //    "Top-level" means not contained inside another element — this avoids phantom gaps
+  //    caused by text labels inside cards appearing as separate layout items.
   if (config.checkSpacing) {
     visibleElements.forEach((el1, i) => {
       visibleElements.slice(i + 1).forEach((el2) => {
@@ -268,8 +285,9 @@ export function analyzeDesign(
     }
   }
 
-  // 3. Alignment near-miss — tightened to 2px so only very obvious off-by-one
-  //    mistakes are flagged, not normal design variance
+  // 3. ALIGNMENT — flag elements whose left edges are almost (but not exactly) aligned.
+  //    We use a 2px threshold so only obvious near-misses are caught.
+  //    A larger threshold produced too many false positives on intentionally offset layouts.
   if (config.checkAlignment) {
     const xPositions = visibleElements.map((el) => el.x)
     xPositions.forEach((x1, i) => {
@@ -289,8 +307,9 @@ export function analyzeDesign(
     })
   }
 
-  // 4. Typography — raise font-size count limit to 5 (heading/subheading/body/caption/label
-  //    is a normal UI scale and should not be flagged)
+  // 4. TYPOGRAPHY — flag text that's too small, and warn if too many different font sizes are used.
+  //    A real UI typically has 4-5 sizes (heading, subheading, body, caption, label).
+  //    We allow up to 5 before flagging — earlier versions flagged at 4 which was too strict.
   if (config.checkTypography) {
     const textElements = visibleElements.filter((el) => el.type === 'text')
 
@@ -331,8 +350,9 @@ export function analyzeDesign(
     }
   }
 
-  // 5. Touch targets — only flag interactive element types (rectangles, circles, frames).
-  //    Text labels, lines, arrows, and decorative shapes are excluded.
+  // 5. TOUCH TARGETS — check that interactive shapes are large enough to tap on a phone.
+  //    We only check INTERACTIVE_TYPES (rectangles, circles, frames) — not text or lines.
+  //    Error threshold is <30px (very small), warning threshold is <44px (Apple/Google standard).
   if (config.checkAccessibility) {
     visibleElements.forEach((el) => {
       if (!INTERACTIVE_TYPES.has(el.type)) return
@@ -350,9 +370,9 @@ export function analyzeDesign(
     })
   }
 
-  // 6. Color — flag excessive palette size (>7) but drop the "mixed harmony" noise.
-  //    Real UI designs naturally use a primary + neutral + semantic palette which
-  //    always reads as "mixed" and should not be penalised.
+  // 6. COLOUR PALETTE — warn if more than 7 unique colours are used.
+  //    We removed the "mixed harmony" check because a typical UI palette (primary + neutral + semantic)
+  //    always reads as "mixed" even when it looks great, so it was just producing noise.
   if (config.checkColorHarmony) {
     const colors = [...new Set(visibleElements.map((el) => el.fill).filter(Boolean))]
     if (colors.length > 7) {
@@ -379,7 +399,8 @@ function elementsOverlap(el1: CanvasElement, el2: CanvasElement): boolean {
   )
 }
 
-// calc score
+// Calculate a standalone heuristic-only score (used when the backend is offline).
+// Each severity level deducts a fixed number of points from 100.
 export function calculateDesignScore(issues: UIIssue[]): number {
   let score = 100
   
@@ -400,7 +421,8 @@ export function calculateDesignScore(issues: UIIssue[]): number {
   return Math.max(0, Math.min(100, score))
 }
 
-// make summary string
+// Build a short human-readable summary like "Found 2 critical issues, 1 warning."
+// This is shown in the AI chat sidebar as a quick overview of what was found.
 export function generateIssueSummary(issues: UIIssue[]): string {
   const errors = issues.filter((i) => i.severity === 'error').length
   const warnings = issues.filter((i) => i.severity === 'warning').length
@@ -415,9 +437,10 @@ export function generateIssueSummary(issues: UIIssue[]): string {
   return `Found ${parts.join(', ')}.`
 }
 
-// Resolve every element's position to absolute canvas coordinates by walking
-// up the parent chain. Child elements store frame-relative x/y, so all
-// geometry checks (overlap, alignment, backend filtering) must use this.
+// Convert every element's x/y from frame-relative to absolute canvas coordinates.
+// Elements inside a frame store their position relative to the frame's top-left corner.
+// For any geometry check (overlap, alignment, distance to backend) we need the real canvas position,
+// so we walk up the parent chain and add up all the offsets.
 export function resolveToAbsolute(elements: CanvasElement[]): CanvasElement[] {
   const map = new Map(elements.map((el) => [el.id, el]))
 
@@ -435,8 +458,11 @@ export function resolveToAbsolute(elements: CanvasElement[]): CanvasElement[] {
   })
 }
 
-// This function handles the connection to our Python FastAPI backend
-// It sends the canvas elements over to be processed by the Vision-Graph Transformer (ViGT) model
+// Send the canvas elements to the Python FastAPI backend to get the ViGT spatial score.
+// Before sending, we resolve positions to absolute coords and filter to only the elements
+// that sit inside the primary frame (the largest frame on the canvas).
+// If there is no frame we send everything with a default 390x844 mobile screen size.
+// Returns null if the backend is offline or returns an error.
 export async function analyzeDesignWithAI(elements: CanvasElement[]) {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8001";
 

@@ -1,5 +1,9 @@
 'use client'
 
+// This is the top-level layout component for the whole editor.
+// It assembles the toolbar, canvas, layers panel, properties panel, and AI chat sidebar.
+// It also owns the design score badge in the top bar and the live collaboration cursors.
+
 import { useEffect, useState } from 'react'
 import { Toolbar } from './toolbar'
 import { DesignCanvas } from './design-canvas'
@@ -20,6 +24,8 @@ import { useCollaboration } from '@/hooks/use-collaboration'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 
+// Maps the label colour token to actual Tailwind classes for the score badge.
+// Keeping this as a lookup object means we never have to write a giant if/else for colours.
 const COLOUR_CLASSES: Record<ScoredResult['colour'], string> = {
   green:  'border-green-500/40  text-green-400  bg-green-500/10',
   blue:   'border-blue-500/40   text-blue-400   bg-blue-500/10',
@@ -37,6 +43,9 @@ interface ScoreBadgeProps {
   breakdown: ScoredResult['breakdown']
 }
 
+// The small badge in the top-right corner that shows "Good · 72/100" etc.
+// When hovered it opens a tooltip showing the score breakdown (AI score, penalties, issue counts).
+// When the canvas is empty it shows "Add elements" instead.
 function ScoreBadge({ isAnalyzing, isEmpty, score, label, colour, breakdown }: ScoreBadgeProps) {
   return (
     <div className="flex items-center gap-2">
@@ -108,45 +117,50 @@ function ScoreBadge({ isAnalyzing, isEmpty, score, label, colour, breakdown }: S
 
 export function CanvasEditor() {
   const [browserOpen, setBrowserOpen] = useState(false)
+
+  // isMounted prevents Next.js hydration errors — localStorage state is only available
+  // in the browser, so we wait until the component has mounted before reading it.
   const [isMounted, setIsMounted] = useState(false)
   const { currentProject, createProject, projects, elements, saveProject } = useCanvasStore()
-  
-  // This hook constantly runs our local UI heuristics (contrast, sizing, etc.)
-  // We debounce it so it doesn't freeze the browser while you're dragging stuff around
+
+  // This hook runs the full analysis pipeline (local heuristics + AI backend) automatically.
+  // The debounceMs delay means it waits 800ms of inactivity before firing so it doesn't
+  // call the backend on every single mouse move while dragging.
   const { score, label, colour, breakdown, errorCount, warningCount, infoCount, isAnalyzing } = useDesignAnalysis({
     debounceMs: 800,
     autoAnalyze: true,
   })
-  
-  // Collaboration setup (Liveblocks)
-  // Grabs the list of other people in the room and lets us broadcast our mouse position
-  const { collaborators, updateCursor, sessionId } = useCollaboration()
 
-  // Standard React trick to avoid hydration mismatch errors with Next.js SSR
+  // Liveblocks collaboration — gets the list of other users in this room and
+  // lets us broadcast our own cursor position to them in real time.
+  const { collaborators, updateCursor } = useCollaboration()
+
   useEffect(() => {
     setIsMounted(true)
   }, [])
-  
-  // Track mouse movements for live cursors
+
+  // Broadcast our mouse position to collaborators whenever we move the mouse.
+  // We only start after isMounted to avoid SSR issues.
   useEffect(() => {
     if (!isMounted) return
-    
+
     const handleMouseMove = (e: MouseEvent) => {
       updateCursor(e.clientX, e.clientY)
     }
-    
+
     window.addEventListener('mousemove', handleMouseMove)
     return () => window.removeEventListener('mousemove', handleMouseMove)
   }, [isMounted, updateCursor])
-  
-  // Create a default project if none exists
+
+  // If there are no projects at all yet (first launch), create a default one automatically.
   useEffect(() => {
     if (!currentProject && projects.length === 0) {
       createProject('Untitled Design')
     }
   }, [currentProject, projects, createProject])
 
-  // Auto-save elements into the current project whenever the canvas changes
+  // Auto-save: whenever the elements array changes, wait 1 second and then save.
+  // The timeout prevents saving on every single keypress or drag frame.
   useEffect(() => {
     if (!currentProject) return
     const t = setTimeout(() => saveProject(), 1000)
@@ -158,10 +172,10 @@ export function CanvasEditor() {
       {/* Top Bar */}
       <div className="flex items-center justify-between bg-panel-bg border-b border-border px-4 py-2">
         <ProjectManager />
-        
+
         {/* Collaborators, Inspiration Browser & Design Score */}
         <div className="flex items-center gap-4">
-          {/* Active Collaborators */}
+          {/* Show avatars for everyone else currently editing this document */}
           {collaborators.length > 0 && (
             <div className="flex items-center gap-2 px-3 py-1 rounded bg-muted">
               <span className="text-xs text-muted-foreground">Collaborating:</span>
@@ -174,6 +188,7 @@ export function CanvasEditor() {
                     </AvatarFallback>
                   </Avatar>
                 ))}
+                {/* Cap at 3 avatars and show "+N" for the rest */}
                 {collaborators.length > 3 && (
                   <div className="h-6 w-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-xs font-bold">
                     +{collaborators.length - 3}
@@ -182,7 +197,8 @@ export function CanvasEditor() {
               </div>
             </div>
           )}
-          
+
+          {/* Share button — copies a URL with the room ID so others can join the session */}
           <Button
             variant="outline"
             size="sm"
@@ -212,6 +228,8 @@ export function CanvasEditor() {
             <Lightbulb className="h-4 w-4" />
             Inspiration
           </Button>
+
+          {/* Issue count badges (errors / warnings / suggestions) */}
           <div className="flex items-center gap-2">
             {errorCount > 0 && (
               <Badge variant="destructive" className="gap-1">
@@ -232,7 +250,7 @@ export function CanvasEditor() {
               </Badge>
             )}
           </div>
-          
+
           <ScoreBadge
             isAnalyzing={isAnalyzing}
             isEmpty={elements.length === 0}
@@ -249,8 +267,9 @@ export function CanvasEditor() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Live Cursors Overlay */}
-        {/* We map through everyone else in the room and draw their little colored mouse pointers */}
+        {/* Live cursor overlay — draws a small coloured arrow for each collaborator.
+            We use fixed positioning so the cursors follow real screen coordinates,
+            not the canvas coordinate system. */}
         {collaborators.map((collab) => (
           collab.presence.cursor && (
             <div
@@ -262,7 +281,6 @@ export function CanvasEditor() {
                 zIndex: 50,
               }}
             >
-              {/* Cursor */}
               <div className="relative shadow-sm" style={{ transition: 'transform 0.1s ease-out' }}>
                 <svg width="24" height="36" viewBox="0 0 24 36" fill="none" stroke="white" strokeWidth="1.5">
                   <path fill={collab.presence.color} d="M1 1L8.5 28L12.5 17L23 12L1 1Z" />
@@ -271,21 +289,13 @@ export function CanvasEditor() {
             </div>
           )
         ))}
-        
-        {/* Layers Panel */}
+
         <LayersPanel />
-
-        {/* Canvas */}
         <DesignCanvas />
-
-        {/* Properties Panel */}
         <PropertiesPanel />
-
-        {/* AI Chat Sidebar */}
         <AIChatSidebar />
       </div>
 
-      {/* Inspiration Browser Modal */}
       <InspirationBrowser open={browserOpen} onOpenChange={setBrowserOpen} />
     </div>
   )
