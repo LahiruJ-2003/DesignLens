@@ -5,7 +5,7 @@
 // both the local heuristic checks and the AI backend analysis.
 // It uses a debounce so it doesn't spam the backend while the user is actively dragging.
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { useCanvasStore } from '@/lib/canvas-store'
 import { analyzeDesign, analyzeDesignWithAI, resolveToAbsolute, generateIssueSummary } from '@/lib/design-analyzer'
 import { computeFinalScore } from '@/lib/scoring'
@@ -27,6 +27,11 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
   // if the element list changed in a way that doesn't affect the score
   // (e.g. a text cursor moved but no position or color changed).
   const lastElementsRef = useRef<string>('')
+
+  // True between when elements change (e.g. project load) and when the first
+  // analysis for those elements completes. Prevents the badge from briefly
+  // showing 100 while the debounce timer is still counting down.
+  const [hasPendingAnalysis, setHasPendingAnalysis] = useState(false)
 
   const runAnalysis = useCallback(async () => {
     setIsAnalyzing(true)
@@ -52,6 +57,7 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     }
 
     setIsAnalyzing(false)
+    setHasPendingAnalysis(false)
   }, [elements, setIssues, setIsAnalyzing, setMlScore])
 
   // If the user clears the entire canvas, reset the score immediately.
@@ -86,6 +92,7 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
 
     if (elementsHash === lastElementsRef.current) return
     lastElementsRef.current = elementsHash
+    setHasPendingAnalysis(true)
 
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
@@ -114,7 +121,7 @@ export function useDesignAnalysis(options: UseDesignAnalysisOptions = {}) {
     breakdown: scored.breakdown,
     summary,
     runAnalysis,
-    isAnalyzing,
+    isAnalyzing: isAnalyzing || hasPendingAnalysis,
     errorCount: scored.breakdown.errorCount,
     warningCount: scored.breakdown.warningCount,
     infoCount: scored.breakdown.infoCount,

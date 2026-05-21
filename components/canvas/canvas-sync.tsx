@@ -13,7 +13,9 @@ export function CanvasSync() {
   
   const isSyncingFromRemote = useRef(false)
   const isFirstRemoteSync = useRef(true)
-  const previousLocalState = useRef({ elements: localElements, layers: localLayers })
+  // Intentionally empty so the first push always detects a difference and seeds the Liveblocks room,
+  // even when the owner's elements were restored from localStorage and haven't "changed" locally.
+  const previousLocalState = useRef<{ elements: typeof localElements; layers: typeof localLayers }>({ elements: [], layers: [] })
 
   // 1. Sync FROM remote TO local
   useEffect(() => {
